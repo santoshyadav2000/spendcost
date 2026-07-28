@@ -1,0 +1,221 @@
+# ############################################################################
+# CloudCost — Helm configuration
+# ----------------------------------------------------------------------------
+# THIS IS THE ONLY FILE YOU NEED TO EDIT.
+#
+# It configures the whole platform: PostgreSQL database, FastAPI backend, and
+# the React/nginx frontend. The same file works in ANY environment — dev, test,
+# staging or production. There are no separate per-environment files: you set
+# the values below to match wherever you are installing.
+#
+# Install / upgrade:
+#   helm upgrade --install cloudcost .
+#
+# Override a single value at install time without editing the file:
+#   helm upgrade --install cloudcost . --set backend.image.tag=v1.2.3
+# ############################################################################
+
+
+# ============================================================================
+# 1. GLOBAL  — shared by all three components
+# ============================================================================
+global:
+  namespace:
+    name: cloudcost-test         # Kubernetes namespace everything is installed into
+    create: true             # let this chart create the namespace
+
+  # Where container images are pulled from.
+  #   registry: ""  -> images are already on the node (offline / docker load)
+  #   registry: "myregistry.azurecr.io" -> pull from that registry
+  image:
+    registry: docker.io/santosh1031
+    pullPolicy: Always
+    pullSecrets: []          # e.g. [ { name: acr-pull-secret } ] for a private registry
+
+  # Ingress (public URLs). Turn this on to expose the app outside the cluster.
+  ingress:
+    enabled: false           # set true to create Ingress objects
+    className: nginx         # your ingress controller class
+    tls:
+      enabled: false         # set true for HTTPS
+      secretName: ""         # TLS secret name (or leave empty for cert-manager)
+    annotations: {}          # e.g. cert-manager.io/cluster-issuer: letsencrypt-prod
+
+  labels: {}                 # extra labels stamped on every object
+
+
+# ============================================================================
+# 2. DATABASE  — PostgreSQL deployed by this chart
+# ----------------------------------------------------------------------------
+# Set `enabled: false` here if you want to use your OWN external database
+# instead (then set the connection string in backend.database.url below).
+# ============================================================================
+database:
+  enabled: true
+
+  image:
+    registry: docker.io/library   # official image — do NOT inherit your personal registry
+    repository: postgres
+    tag: "16-alpine"         # PostgreSQL version (kept pinned on purpose)
+
+  # Credentials for the database this chart creates.
+  # These MUST match backend.database.* below so the backend can connect.
+  auth:
+    username: cloudcost
+    password: "changeme"     # CHANGE THIS. Or use an existing secret:
+    database: cloudcost_db
+    existingSecret: ""       # name of a pre-created Secret (overrides the 3 above)
+
+  # Storage for the database files.
+  #   type: pvc        -> normal dynamic volume (recommended)
+  #          azureDisk -> Azure Managed Disk   (storageClass: managed-csi)
+  #          azureFile -> Azure Files (SMB)    (NOT recommended for a database)
+  #          azureBlob -> Azure Blob (blobfuse)
+  #          local     -> node hostPath (single-node / dev only)
+  #          emptyDir  -> ephemeral, data lost on restart (testing only)
+  persistence:
+    enabled: true
+    type: pvc
+    size: 20Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""         # "" = cluster default storage class
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+
+# ============================================================================
+# 3. BACKEND  — FastAPI API + background workers
+# ============================================================================
+backend:
+  enabled: true
+
+  image:
+    repository: cloudcost-backend
+    tag: "latest"
+
+  # The backend runs scheduled jobs INSIDE the process, so it must stay at a
+  # single replica (more than one would run duplicate jobs).
+  workload:
+    kind: Deployment         # Deployment or StatefulSet
+    replicaCount: 1
+
+  # --------------------------------------------------------------------------
+  # DATABASE CONNECTION  — how the backend reaches PostgreSQL
+  # --------------------------------------------------------------------------
+  # OPTION A (default): use the database this chart deploys (section 2 above).
+  #   Leave `url` empty. The connection string is built automatically from the
+  #   parts below, pointing at the in-cluster PostgreSQL service.
+  #
+  # OPTION B: use your OWN external database.
+  #   1) set `database.enabled: false` in section 2
+  #   2) put the full connection string in `url` here.
+  #      IMPORTANT: URL-encode special characters in the password
+  #      ( @ -> %40   # -> %23   $ -> %24   & -> %26 )
+  #      Example:
+  #      url: "postgresql+asyncpg://cloudcost:Infra%40%23%24%267777@10.0.0.5:5432/cloudcost_db"
+  # --------------------------------------------------------------------------
+  database:
+    url: ""                          # <-- set this for an EXTERNAL database
+    driver: "postgresql+asyncpg"
+    host: ""                         # "" = in-cluster DB service (auto)
+    port: 5432
+    name: "cloudcost_db"             # must match database.auth.database
+    user: "cloudcost"                # must match database.auth.username
+    password: "changeme"             # must match database.auth.password
+
+  # Non-secret application settings.
+  config:
+    logLevel: "INFO"                 # DEBUG | INFO | WARNING | ERROR
+    bcryptSaltRound: 12
+    batchSize: 100
+    maxDelete: 500
+    # Google OAuth callback. Must be your PUBLIC backend URL + /auth/google/callback
+    redirectUri: "https://cloudcost-api.infrashift.tech/auth/google/callback"
+    smtp:
+      server: "smtp.gmail.com"
+      port: 587
+    # Optional worker tuning (leave empty to use built-in defaults).
+    # Example: { BILLING_LOAD_WORKERS: "4", AMORTIZED_LOAD_WORKERS: "4" }
+    extraEnv: {}
+
+  # Sensitive values -> stored in a Kubernetes Secret (never a ConfigMap).
+  secrets:
+    existingSecret: ""               # use a pre-created Secret instead of the below
+    secretKey: "change-me-generate-a-strong-random-key"
+    googleClientId: ""
+    googleClientSecret: ""
+    smtpUser: ""
+    smtpPassword: ""
+
+  # Database schema migrations (runs `alembic upgrade head` on install/upgrade).
+  migrations:
+    enabled: true
+
+  # Optional disk for billing CSV files the workers write to disk.
+  persistence:
+    enabled: false
+    type: pvc                # pvc | azureFile | azureBlob | local | emptyDir
+    size: 5Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""
+
+  # Public API URL. Enable and set the host to expose the API.
+  ingress:
+    enabled: true
+    host: cloudcost-api.infrashift.tech
+    tls:
+      enabled: true
+      secretName: cloudcost-api-tls
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+
+# ============================================================================
+# 4. FRONTEND  — React app served by nginx
+# ============================================================================
+frontend:
+  enabled: true
+
+  image:
+    repository: cloudcost-ui           # your built UI image
+    tag: "latest"
+
+  replicaCount: 2
+
+  # The frontend calls the backend at this URL. It is injected at startup, so
+  # you do NOT need to rebuild the image to point at a different backend.
+  #   apiBaseUrl  -> the PUBLIC backend URL the browser should call
+  #   replaceFrom -> the URL that was baked in when the image was built
+  #                  (the default build uses http://127.0.0.1:8000)
+  runtimeConfig:
+    enabled: true
+    apiBaseUrl: "https://cloudcost-api.infrashift.tech"
+    replaceFrom: "http://127.0.0.1:8000"
+
+  # Public UI URL. Enable and set the host to expose the UI.
+  ingress:
+    enabled: true
+    host: cloudcost.infrashift.tech
+    tls:
+      enabled: true
+      secretName: cloudcost-ui-tls
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi

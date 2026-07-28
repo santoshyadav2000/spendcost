@@ -1,0 +1,136 @@
+# ============================================================================
+# backend — FastAPI (Uvicorn) + in-process background workers
+# ============================================================================
+enabled: true
+
+namespaceOverride: ""
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ""            # inherits global.image.registry when empty
+  repository: cloudcost-backend
+  tag: "latest"
+  pullPolicy: ""          # inherits global.image.pullPolicy when empty
+
+# --- Workload shape (fully dynamic) -----------------------------------------
+# kind: Deployment (default) or StatefulSet.
+# NOTE: the app starts background workers in-process, so running more than one
+# replica will duplicate scheduled jobs. Keep replicaCount at 1 unless you
+# externalise the workers.
+workload:
+  kind: Deployment
+  replicaCount: 1
+  strategy:
+    type: RollingUpdate      # for Deployment
+  revisionHistoryLimit: 5
+
+command: []                  # override container command if needed
+args: []
+
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+# --- Application config (non-secret) ----------------------------------------
+config:
+  logLevel: "ERROR"
+  bcryptSaltRound: 12
+  batchSize: 100
+  maxDelete: 500
+  # Google OAuth callback — must match the public backend host in production.
+  redirectUri: "http://localhost:8000/auth/google/callback"
+  smtp:
+    server: "smtp.gmail.com"
+    port: 587
+  # Free-form extra env (rendered into ConfigMap)
+  extraEnv: {}
+
+# --- Database connection ----------------------------------------------------
+# If `url` is set it is used verbatim (remember to URL-encode the password).
+# Otherwise a URL is built from the parts below. `host` defaults to the
+# in-cluster PostgreSQL service created by the database subchart.
+database:
+  url: ""
+  driver: "postgresql+asyncpg"
+  host: ""                   # "" -> <release>-postgres.<namespace>.svc.cluster.local
+  port: 5432
+  name: "cloudcost_db"
+  user: "cloudcost"
+  password: "changeme"       # prefer secrets.existingSecret in production
+
+# --- Secrets ----------------------------------------------------------------
+# When existingSecret is set, all sensitive env is sourced from it (keys must
+# match the names used by the app). Otherwise a Secret is generated from the
+# values below.
+secrets:
+  existingSecret: ""
+  secretKey: "change-me-please-generate-a-strong-key"
+  googleClientId: ""
+  googleClientSecret: ""
+  smtpUser: ""
+  smtpPassword: ""
+
+# --- Database migrations (Helm hook Job: alembic upgrade head) --------------
+migrations:
+  enabled: true
+  # Waits for the DB TCP port before running.
+  waitForDb: true
+
+# --- Persistence (billing CSV assets written to src/jobs/assets) ------------
+persistence:
+  enabled: false
+  type: pvc                  # pvc | azureDisk | azureFile | azureBlob | local | emptyDir
+  size: 5Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""
+  mountPath: /app/src/jobs/assets
+  annotations: {}
+  hostPath: /mnt/data/cloudcost-assets
+  existingClaim: ""
+
+# --- Ingress (backend API host — matches cloudcost-api* pattern) ------------
+ingress:
+  enabled: false
+  className: ""              # "" -> inherits global.ingress.className
+  host: cloudcost-api.example.com
+  path: /
+  pathType: Prefix
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+
+# --- Autoscaling (disabled by default because of in-process workers) --------
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+probes:
+  enabled: true
+  path: /
+  initialDelaySeconds: 20
+  periodSeconds: 15
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
