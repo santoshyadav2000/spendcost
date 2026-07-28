@@ -1,0 +1,72 @@
+# ============================================================================
+# frontend — React build served by nginx
+# ============================================================================
+enabled: true
+
+namespaceOverride: ""
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ""            # inherits global.image.registry when empty
+  repository: cloudcost-ui-prod
+  tag: "latest"
+  pullPolicy: ""          # inherits global.image.pullPolicy when empty
+
+replicaCount: 2
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+# --- Runtime API URL injection ----------------------------------------------
+# VITE_API_BASE_URL is baked into the JS bundle at build time. To avoid
+# rebuilding per environment, an init-container rewrites the baked value in the
+# static assets at pod start.
+#   apiBaseUrl  -> the URL you want at runtime (points at the backend host)
+#   replaceFrom -> the value that was baked in at build time (what to replace)
+# Set runtimeConfig.enabled=false to serve the bundle exactly as built.
+runtimeConfig:
+  enabled: true
+  apiBaseUrl: "http://cloudcost-api.example.com"
+  replaceFrom: "http://127.0.0.1:8000"
+
+# --- Ingress (frontend host) ------------------------------------------------
+ingress:
+  enabled: false
+  className: ""           # "" -> inherits global.ingress.className
+  host: cloudcost.example.com
+  path: /
+  pathType: Prefix
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
+
+probes:
+  enabled: true
+  path: /
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontend.fullname" . }}
+  namespace: {{ include "frontend.namespace" . }}
+  labels:
+    {{- include "frontend.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "frontend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontend.labels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with (.Values.global).image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.runtimeConfig.enabled }}
+      initContainers:
+        - name: inject-config
+          image: {{ include "frontend.image" . }}
+          imagePullPolicy: {{ include "frontend.pullPolicy" . }}
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              cp -a /usr/share/nginx/html/. /work/
+              echo "Rewriting API base URL -> {{ .Values.runtimeConfig.apiBaseUrl }}"
+              grep -rl "{{ .Values.runtimeConfig.replaceFrom }}" /work 2>/dev/null | while read -r f; do
+                sed -i "s|{{ .Values.runtimeConfig.replaceFrom }}|{{ .Values.runtimeConfig.apiBaseUrl }}|g" "$f"
+              done || true
+          volumeMounts:
+            - name: html
+              mountPath: /work
+      {{- end }}
+      containers:
+        - name: frontend
+          image: {{ include "frontend.image" . }}
+          imagePullPolicy: {{ include "frontend.pullPolicy" . }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+          {{- if .Values.probes.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.runtimeConfig.enabled }}
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+          {{- end }}
+      {{- if .Values.runtimeConfig.enabled }}
+      volumes:
+        - name: html
+          emptyDir: {}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

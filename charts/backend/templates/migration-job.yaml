@@ -1,0 +1,59 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "backend.fullname" . }}-migrate
+  namespace: {{ include "backend.namespace" . }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "backend.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with (.Values.global).image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.migrations.waitForDb }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "backend.image" . }}
+          imagePullPolicy: {{ include "backend.pullPolicy" . }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "backend.dbHost" . }} -p {{ .Values.database.port }}; do
+                echo "waiting for db..."; sleep 3;
+              done
+      {{- end }}
+      containers:
+        - name: alembic-upgrade
+          image: {{ include "backend.image" . }}
+          imagePullPolicy: {{ include "backend.pullPolicy" . }}
+          workingDir: /app
+          envFrom:
+            - configMapRef:
+                name: {{ include "backend.configName" . }}
+            - secretRef:
+                name: {{ include "backend.secretName" . }}
+          command:
+            - python
+            - -c
+            - |
+              import os
+              from alembic.config import Config
+              from alembic import command
+              cfg = Config("alembic.ini")
+              cfg.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+              command.upgrade(cfg, "head")
+              print("Alembic migrations applied.")
+{{- end }}

@@ -1,0 +1,151 @@
+{{- $isSts := eq .Values.workload.kind "StatefulSet" }}
+{{- $dynamic := has .Values.persistence.type (list "pvc" "azureDisk" "azureFile" "azureBlob") }}
+{{- $stsClaimTemplate := and $isSts .Values.persistence.enabled $dynamic (not .Values.persistence.existingClaim) }}
+apiVersion: apps/v1
+kind: {{ .Values.workload.kind }}
+metadata:
+  name: {{ include "backend.fullname" . }}
+  namespace: {{ include "backend.namespace" . }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+spec:
+  {{- if $isSts }}
+  serviceName: {{ include "backend.fullname" . }}
+  {{- end }}
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.workload.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.workload.revisionHistoryLimit }}
+  {{- if and (not $isSts) .Values.workload.strategy }}
+  strategy:
+    {{- toYaml .Values.workload.strategy | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "backend.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "backend.serviceAccountName" . }}
+      {{- with (.Values.global).image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.migrations.waitForDb (or .Values.database.host (.Values.global)) }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "backend.image" . }}
+          imagePullPolicy: {{ include "backend.pullPolicy" . }}
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for database {{ include "backend.dbHost" . }}:{{ .Values.database.port }} ..."
+              until pg_isready -h {{ include "backend.dbHost" . }} -p {{ .Values.database.port }}; do
+                sleep 3
+              done
+              echo "Database is ready."
+      {{- end }}
+      containers:
+        - name: backend
+          image: {{ include "backend.image" . }}
+          imagePullPolicy: {{ include "backend.pullPolicy" . }}
+          {{- with .Values.command }}
+          command: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.args }}
+          args: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "backend.configName" . }}
+            - secretRef:
+                name: {{ include "backend.secretName" . }}
+          {{- if .Values.probes.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ add .Values.probes.initialDelaySeconds 10 }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.persistence.enabled (not $stsClaimTemplate) }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+          {{- else if eq .Values.persistence.type "local" }}
+          hostPath:
+            path: {{ .Values.persistence.hostPath }}
+            type: DirectoryOrCreate
+          {{- else if eq .Values.persistence.type "emptyDir" }}
+          emptyDir: {}
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "backend.fullname" . }}-data
+          {{- end }}
+      {{- end }}
+  {{- if $stsClaimTemplate }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          - {{ .Values.persistence.accessMode }}
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}
