@@ -52,8 +52,24 @@ spec:
               import os
               from alembic.config import Config
               from alembic import command
+              {{- if .Values.migrations.extensions }}
+              from sqlalchemy import create_engine, text
+              # --- Ensure required PostgreSQL extensions (idempotent) --------
+              # Controlled by backend.migrations.extensions in values.yaml.
+              # Runs against the real target DB (in-cluster OR external), so it
+              # works for any deployment. Set that list to [] to skip this — it
+              # will not affect the migration step below.
+              _sync = os.environ["DATABASE_URL"].replace("+asyncpg", "+psycopg2")
+              _eng = create_engine(_sync)
+              with _eng.begin() as _c:
+                  {{- range .Values.migrations.extensions }}
+                  _c.execute(text('CREATE EXTENSION IF NOT EXISTS "{{ . }}"'))
+                  {{- end }}
+              _eng.dispose()
+              print("Ensured extensions: {{ .Values.migrations.extensions | join ", " }}")
+              {{- end }}
               cfg = Config("alembic.ini")
               cfg.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
-              command.upgrade(cfg, "head")
+              command.upgrade(cfg, "heads")
               print("Alembic migrations applied.")
 {{- end }}
