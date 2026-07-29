@@ -50,6 +50,14 @@ autoscaling:
   maxReplicas: 5
   targetCPUUtilizationPercentage: 80
 
+# --- PodDisruptionBudget (default OFF) --------------------------------------
+# Enable ONLY if you scale the frontend to 3+ replicas and want zero-downtime
+# during node upgrades. maxUnavailable: 1 moves pods one at a time and never
+# blocks maintenance. Leave OFF at 1-2 replicas.
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+
 resources:
   requests:
     cpu: 50m

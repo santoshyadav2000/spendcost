@@ -68,7 +68,7 @@ database:
 
   # Storage for the database files.
   #   type: pvc        -> normal dynamic volume (recommended)
-  #          azureDisk -> Azure Managed Disk   (storageClass: managed-csi)
+  #          azureDisk -> Azure Managed Disk   (storageClass: managed-csi,managed-csi-premium)
   #          azureFile -> Azure Files (SMB)    (NOT recommended for a database)
   #          azureBlob -> Azure Blob (blobfuse)
   #          local     -> node hostPath (single-node / dev only)
@@ -76,14 +76,14 @@ database:
   persistence:
     enabled: true
     type: pvc
-    size: 20Gi
+    size: 100Gi
     accessMode: ReadWriteOnce
     storageClass: ""         # "" = cluster default storage class
 
   resources:
     requests:
-      cpu: 250m
-      memory: 256Mi
+      cpu: 500m
+      memory: 1G1
     limits:
       cpu: "1"
       memory: 1Gi
@@ -153,9 +153,15 @@ backend:
     smtpUser: ""
     smtpPassword: ""
 
-  # Database schema migrations (runs `alembic upgrade head` on install/upgrade).
+  # Database schema migrations (runs `alembic upgrade heads` on install/upgrade).
   migrations:
     enabled: true
+    # PostgreSQL extensions ensured before migrations run (needed because some
+    # migrations use uuid_generate_v4()). Created with CREATE EXTENSION IF NOT
+    # EXISTS, so it is safe and idempotent. Set to [] to disable entirely.
+    extensions:
+      - uuid-ossp
+      - pgcrypto
 
   # Optional disk for billing CSV files the workers write to disk.
   persistence:
@@ -165,13 +171,20 @@ backend:
     accessMode: ReadWriteOnce
     storageClass: ""
 
-  # Public API URL. Enable and set the host to expose the API.
+  # ── Public API URL (Ingress) ──────────────────────────────────────────────
+  # Exposes the backend API to the internet. NOTE: your cluster must already
+  # have an ingress controller installed (e.g. nginx), and DNS + TLS cert are
+  # handled outside this chart. This block only creates the routing rule.
   ingress:
-    enabled: true
-    host: cloudcost-api.infrashift.tech
+    enabled: true                        # true = create the public route; false = internal only (port-forward)
+    className: ""                        # ingress controller class, e.g. "nginx". "" = inherit global.ingress.className
+    host: cloudcost-api.infrashift.tech  # the public domain for the API — point your DNS record at the ingress IP
+    path: /                              # URL path to route (usually "/")
+    pathType: Prefix
+    annotations: {}                      # controller / cert-manager settings, e.g. { cert-manager.io/cluster-issuer: letsencrypt-prod }
     tls:
-      enabled: true
-      secretName: cloudcost-api-tls
+      enabled: true                      # true = serve over HTTPS
+      secretName: cloudcost-api-tls      # name of the K8s Secret holding the TLS certificate (cert-manager can create it)
 
   resources:
     requests:
@@ -180,6 +193,24 @@ backend:
     limits:
       cpu: "1"
       memory: 1Gi
+
+  # PodDisruptionBudget — keep DISABLED for the backend.
+  # The backend runs 1 replica (in-process background workers). A PDB on a
+  # 1-replica app would BLOCK node drains during cluster maintenance, so do
+  # NOT enable this unless the backend runs 3+ replicas.
+  podDisruptionBudget:
+    enabled: false
+    maxUnavailable: 1
+
+  # Autoscaling — keep DISABLED for the backend.
+  # The backend runs background schedulers in-process; more than one replica
+  # would run duplicate scheduled jobs. Do NOT enable unless the app is split
+  # into separate API + worker processes (RUN_WORKERS flag).
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
 
 
 # ============================================================================
@@ -204,18 +235,42 @@ frontend:
     apiBaseUrl: "https://cloudcost-api.infrashift.tech"
     replaceFrom: "http://127.0.0.1:8000"
 
-  # Public UI URL. Enable and set the host to expose the UI.
+  # ── Public UI URL (Ingress) ───────────────────────────────────────────────
+  # Exposes the web UI to the internet. Same requirements as the backend:
+  # an ingress controller must be installed, and DNS + TLS are set up outside
+  # this chart. This block only creates the routing rule.
   ingress:
-    enabled: true
-    host: cloudcost.infrashift.tech
+    enabled: true                        # true = create the public route; false = internal only (port-forward)
+    className: ""                        # ingress controller class, e.g. "nginx". "" = inherit global.ingress.className
+    host: cloudcost.infrashift.tech      # the public domain for the UI — point your DNS record at the ingress IP
+    path: /                              # URL path to route (usually "/")
+    pathType: Prefix
+    annotations: {}                      # controller / cert-manager settings, e.g. { cert-manager.io/cluster-issuer: letsencrypt-prod }
     tls:
-      enabled: true
-      secretName: cloudcost-ui-tls
+      enabled: true                      # true = serve over HTTPS
+      secretName: cloudcost-ui-tls       # name of the K8s Secret holding the TLS certificate (cert-manager can create it)
 
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 100m
+      memory: 500Mi
     limits:
       cpu: 250m
-      memory: 128Mi
+      memory: 900Mi
+
+  # PodDisruptionBudget — default OFF.
+  # Turn ON only when the frontend runs 3+ replicas AND you want zero-downtime
+  # during node upgrades. maxUnavailable: 1 evicts pods one at a time and never
+  # blocks maintenance. At 1-2 replicas, leave it OFF.
+  podDisruptionBudget:
+    enabled: false
+    maxUnavailable: 1
+
+  # Autoscaling — default OFF.
+  # Enable to automatically add/remove frontend pods based on CPU. Safe for the
+  # frontend (stateless nginx). minReplicas/maxReplicas set the range.
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80

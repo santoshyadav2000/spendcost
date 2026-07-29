@@ -77,6 +77,12 @@ migrations:
   enabled: true
   # Waits for the DB TCP port before running.
   waitForDb: true
+  # PostgreSQL extensions ensured (CREATE EXTENSION IF NOT EXISTS) before the
+  # migrations run. Set to [] to disable — the step is then omitted and does
+  # not affect the migration logic.
+  extensions:
+    - uuid-ossp
+    - pgcrypto
 
 # --- Persistence (billing CSV assets written to src/jobs/assets) ------------
 persistence:
@@ -108,6 +114,14 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 3
   targetCPUUtilizationPercentage: 80
+
+# --- PodDisruptionBudget (default OFF) --------------------------------------
+# Keep DISABLED for the backend: it runs a single replica (in-process
+# background workers), and a PDB on a 1-replica app would BLOCK node drains
+# during cluster maintenance/upgrades.
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
 
 resources:
   requests:
