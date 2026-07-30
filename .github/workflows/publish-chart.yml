@@ -1,0 +1,54 @@
+name: Publish Helm Chart (docs folder)
+
+# Method A automation:
+# On every push to main, package the chart, (re)build the repo index, and
+# commit the result into the docs/ folder that GitHub Pages serves.
+#
+# paths-ignore on docs/** prevents the workflow's own commit from
+# re-triggering itself (avoids an infinite loop).
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+  workflow_dispatch: {}   # allows manual "Run workflow" from the Actions tab
+
+permissions:
+  contents: write         # needed so the Action can commit docs/ back to the repo
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Package chart and build index
+        run: |
+          set -e
+          # Package the chart at the repo root into docs/
+          helm package . -d docs
+          # Rebuild the index, keeping older versions (--merge) when it exists
+          if [ -f docs/index.yaml ]; then
+            helm repo index docs --url https://santoshyadav2000.github.io/spendcost --merge docs/index.yaml
+          else
+            helm repo index docs --url https://santoshyadav2000.github.io/spendcost
+          fi
+
+      - name: Commit and push updated docs/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs
+          # Only commit if something actually changed
+          if git diff --staged --quiet; then
+            echo "No chart changes to publish."
+          else
+            git commit -m "ci: publish Helm chart to docs [skip ci]"
+            git push
+          fi
