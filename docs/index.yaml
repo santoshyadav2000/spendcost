@@ -1,0 +1,37 @@
+apiVersion: v1
+entries:
+  costmanagement:
+  - apiVersion: v2
+    appVersion: 1.0.0
+    created: "2026-07-30T16:55:11.6910109+05:30"
+    dependencies:
+    - condition: database.enabled
+      name: database
+      repository: file://charts/database
+      version: 0.1.0
+    - condition: backend.enabled
+      name: backend
+      repository: file://charts/backend
+      version: 0.1.0
+    - condition: frontend.enabled
+      name: frontend
+      repository: file://charts/frontend
+      version: 0.1.0
+    description: 'Umbrella Helm chart for the CloudCost platform (Azure Cost Management).
+      Bundles the FastAPI backend, the React/nginx frontend, and a self-contained
+      PostgreSQL database. Fully values-driven and offline/air-gap friendly. '
+    digest: 3d768056c9007a190d735494dd40add425d916d82baae3ef6b36e57e30d0882b
+    keywords:
+    - cloudcost
+    - fastapi
+    - react
+    - postgresql
+    - azure
+    maintainers:
+    - name: Infrashift
+    name: costmanagement
+    type: application
+    urls:
+    - https://santoshyadav2000.github.io/spendcost/costmanagement-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-07-30T16:55:11.6822727+05:30"
