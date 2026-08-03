@@ -1,4 +1,6 @@
-{{- $usesClaimTemplate := and .Values.persistence.enabled (not .Values.persistence.existingClaim) (has .Values.persistence.type (list "pvc" "azureDisk" "azureFile" "azureBlob")) }}
+{{- $db := .Values.global.database -}}
+{{- if not $db.existingDatabase }}
+{{- $usesClaimTemplate := and $db.persistence.enabled (not $db.persistence.existingClaim) (has $db.persistence.type (list "pvc" "azureDisk" "azureFile" "azureBlob")) }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -8,7 +10,7 @@ metadata:
     {{- include "database.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "database.headlessService" . }}
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ $db.replicaCount }}
   selector:
     matchLabels:
       {{- include "database.selectorLabels" . | nindent 6 }}
@@ -16,16 +18,12 @@ spec:
     metadata:
       labels:
         {{- include "database.labels" . | nindent 8 }}
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
     spec:
-      {{- with (.Values.global).image.pullSecrets }}
+      {{- with $db.image.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.podSecurityContext }}
+      {{- with $db.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -33,7 +31,7 @@ spec:
         - name: postgres
           image: {{ include "database.image" . }}
           imagePullPolicy: {{ include "database.pullPolicy" . }}
-          {{- with .Values.securityContext }}
+          {{- with $db.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -45,62 +43,51 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "database.secretName" . }}
-                  key: {{ .Values.auth.secretKeys.usernameKey }}
+                  key: POSTGRES_USER
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "database.secretName" . }}
-                  key: {{ .Values.auth.secretKeys.passwordKey }}
+                  key: POSTGRES_PASSWORD
             - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef:
                   name: {{ include "database.secretName" . }}
-                  key: {{ .Values.auth.secretKeys.databaseKey }}
+                  key: POSTGRES_DB
             - name: PGDATA
-              value: {{ printf "%s/%s" .Values.persistence.mountPath .Values.persistence.subPath | quote }}
-            {{- with .Values.extraEnv }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
-          {{- if .Values.probes.enabled }}
+              value: {{ printf "%s/%s" $db.persistence.mountPath $db.persistence.subPath | quote }}
+          {{- if $db.probes.enabled }}
           readinessProbe:
             exec:
               command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
-            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
-            periodSeconds: {{ .Values.probes.periodSeconds }}
+            initialDelaySeconds: {{ $db.probes.initialDelaySeconds }}
+            periodSeconds: {{ $db.probes.periodSeconds }}
+            timeoutSeconds: {{ $db.probes.timeoutSeconds }}
+            failureThreshold: {{ $db.probes.failureThreshold }}
           livenessProbe:
             exec:
               command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -h 127.0.0.1"]
-            initialDelaySeconds: {{ add .Values.probes.initialDelaySeconds 15 }}
-            periodSeconds: {{ .Values.probes.periodSeconds }}
+            initialDelaySeconds: {{ add $db.probes.initialDelaySeconds 15 }}
+            periodSeconds: {{ $db.probes.periodSeconds }}
+            timeoutSeconds: {{ $db.probes.timeoutSeconds }}
+            failureThreshold: {{ $db.probes.failureThreshold }}
           {{- end }}
-          {{- with .Values.resources }}
+          {{- with $db.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
             - name: data
-              mountPath: {{ .Values.persistence.mountPath }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+              mountPath: {{ $db.persistence.mountPath }}
       {{- if not $usesClaimTemplate }}
       volumes:
         - name: data
-          {{- if .Values.persistence.existingClaim }}
+          {{- if $db.persistence.existingClaim }}
           persistentVolumeClaim:
-            claimName: {{ .Values.persistence.existingClaim }}
-          {{- else if eq .Values.persistence.type "local" }}
+            claimName: {{ $db.persistence.existingClaim }}
+          {{- else if eq $db.persistence.type "local" }}
           hostPath:
-            path: {{ .Values.persistence.hostPath }}
+            path: {{ $db.persistence.hostPath }}
             type: DirectoryOrCreate
           {{- else }}
           emptyDir: {}
@@ -110,17 +97,18 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: data
-        {{- with .Values.persistence.annotations }}
+        {{- with $db.persistence.annotations }}
         annotations:
           {{- toYaml . | nindent 10 }}
         {{- end }}
       spec:
         accessModes:
-          - {{ .Values.persistence.accessMode }}
-        {{- if .Values.persistence.storageClass }}
-        storageClassName: {{ .Values.persistence.storageClass | quote }}
+          - {{ $db.persistence.accessMode }}
+        {{- if $db.persistence.storageClass }}
+        storageClassName: {{ $db.persistence.storageClass | quote }}
         {{- end }}
         resources:
           requests:
-            storage: {{ .Values.persistence.size }}
+            storage: {{ $db.persistence.size }}
   {{- end }}
+{{- end }}

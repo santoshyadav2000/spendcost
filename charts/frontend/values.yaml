@@ -8,10 +8,11 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  registry: ""            # inherits global.image.registry when empty
+  registry: ""            # "" -> image already on node; else e.g. docker.io/santosh1031
   repository: cloudcost-ui-prod
   tag: "latest"
-  pullPolicy: ""          # inherits global.image.pullPolicy when empty
+  pullPolicy: IfNotPresent
+  pullSecrets: []         # e.g. [ { name: acr-pull-secret } ] for a private registry
 
 replicaCount: 2
 
@@ -29,20 +30,20 @@ service:
 # Set runtimeConfig.enabled=false to serve the bundle exactly as built.
 runtimeConfig:
   enabled: true
-  apiBaseUrl: "http://cloudcost-api.example.com"
+  apiBaseUrl: "/api"      # relative — works on any IP or domain
   replaceFrom: "http://127.0.0.1:8000"
 
-# --- Ingress (frontend host) ------------------------------------------------
+# --- Ingress (list form: hosts[] each with paths[], tls[]) ------------------
 ingress:
   enabled: false
-  className: ""           # "" -> inherits global.ingress.className
-  host: cloudcost.example.com
-  path: /
-  pathType: Prefix
+  className: ""           # ingress controller class, e.g. "nginx". "" = cluster default
   annotations: {}
-  tls:
-    enabled: false
-    secretName: ""
+  hosts:
+    - host: ""            # "" = catch-all on the ingress IP (HTTP)
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []                 # e.g. [ { secretName: my-tls, hosts: [ my.host ] } ]
 
 autoscaling:
   enabled: false

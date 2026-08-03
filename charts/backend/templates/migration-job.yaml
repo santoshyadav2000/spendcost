@@ -18,11 +18,11 @@ spec:
         {{- include "backend.selectorLabels" . | nindent 8 }}
     spec:
       restartPolicy: Never
-      {{- with (.Values.global).image.pullSecrets }}
+      {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.migrations.waitForDb }}
+      {{- if and .Values.migrations.waitForDb (not .Values.global.database.existingDatabase) }}
       initContainers:
         - name: wait-for-db
           image: {{ include "backend.image" . }}
@@ -31,7 +31,7 @@ spec:
             - sh
             - -c
             - |
-              until pg_isready -h {{ include "backend.dbHost" . }} -p {{ .Values.database.port }}; do
+              until pg_isready -h {{ include "backend.dbHost" . }} -p {{ .Values.global.database.service.port }}; do
                 echo "waiting for db..."; sleep 3;
               done
       {{- end }}
@@ -40,6 +40,10 @@ spec:
           image: {{ include "backend.image" . }}
           imagePullPolicy: {{ include "backend.pullPolicy" . }}
           workingDir: /app
+          {{- if not .Values.global.database.existingDatabase }}
+          env:
+            {{- include "backend.dbEnv" . | nindent 12 }}
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "backend.configName" . }}

@@ -19,7 +19,7 @@
 {{- end -}}
 
 {{- define "frontend.image" -}}
-{{- $reg := .Values.image.registry | default (.Values.global).image.registry -}}
+{{- $reg := .Values.image.registry -}}
 {{- if $reg -}}
 {{- printf "%s/%s:%s" $reg .Values.image.repository .Values.image.tag -}}
 {{- else -}}
@@ -28,7 +28,7 @@
 {{- end -}}
 
 {{- define "frontend.pullPolicy" -}}
-{{- .Values.image.pullPolicy | default (.Values.global).image.pullPolicy | default "IfNotPresent" -}}
+{{- .Values.image.pullPolicy | default "IfNotPresent" -}}
 {{- end -}}
 
 {{- define "frontend.selectorLabels" -}}
@@ -48,5 +48,5 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- end -}}
 
 {{- define "frontend.ingressClassName" -}}
-{{- .Values.ingress.className | default (.Values.global).ingress.className -}}
+{{- .Values.ingress.className -}}
 {{- end -}}

@@ -22,82 +22,90 @@
 global:
   namespace:
     name: cloudcost-test         # Kubernetes namespace everything is installed into
-    create: true             # let this chart create the namespace
 
-  # Where container images are pulled from.
-  #   registry: ""  -> images are already on the node (offline / docker load)
-  #   registry: "myregistry.azurecr.io" -> pull from that registry
-  image:
-    registry: docker.io/santosh1031
-    pullPolicy: Always
-    pullSecrets: []          # e.g. [ { name: acr-pull-secret } ] for a private registry
+  # ==========================================================================
+  database:
+    # Mode:
+    #   existingDatabase: false -> the chart DEPLOYS PostgreSQL. Credentials are
+    #        defined in charts/database/templates/secret.yaml and stored in the
+    #        Secret <release>-postgres-auth; the backend reads them from there.
+    #        Nothing to set here (view creds: kubectl get secret <release>-postgres-auth).
+    #   existingDatabase: true  -> use an EXISTING database. Put the FULL
+    #        connection string in `url` below (host, port, user, password, db all
+    #        live inside it) — no other connection fields are needed.
+    existingDatabase: false
 
-  # Ingress (public URLs). Turn this on to expose the app outside the cluster.
-  ingress:
-    enabled: false           # set true to create Ingress objects
-    className: nginx         # your ingress controller class
-    tls:
-      enabled: false         # set true for HTTPS
-      secretName: ""         # TLS secret name (or leave empty for cert-manager)
-    annotations: {}          # e.g. cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Connection string for an EXISTING database (used only when
+    # existingDatabase: true). URL-encode special chars in the password
+    # ( @->%40  #->%23  $->%24  &->%26 ). Leave empty when existingDatabase: false.
+    # Example: "postgresql+asyncpg://user:pass@myhost:5432/cloudcost_db"
+    #url: ""
+
+    # --- Settings for the PostgreSQL WE deploy (only when existingDatabase: false) ---
+    image:
+      registry: "docker.io/library"   # official image (not your personal registry)
+      repository: "postgres"
+      tag: "16-alpine"
+      pullPolicy: "IfNotPresent"
+      pullSecrets: []                 # e.g. [ { name: acr-pull-secret } ] for a private registry
+    service:
+      port: 5432
+      type: ClusterIP
+    replicaCount: 1
+    # Storage for the database files.
+    #   type controls how the data volume is provisioned:
+    #     pvc        -> dynamic PVC via storageClassName (default k8s path, recommended)
+    #     azureDisk  -> Azure Managed Disk CSI   (set storageClass: managed-csi / managed-csi-premium)
+    #     azureFile  -> Azure Files CSI (SMB)    (set storageClass: azurefile-csi — NOT recommended for a DB)
+    #     azureBlob  -> Azure Blob CSI (blobfuse)(set storageClass: azureblob-fuse-premium)
+    #     local      -> node hostPath (single-node / dev only; uses hostPath below)
+    #     emptyDir   -> ephemeral, data lost on pod restart (testing only)
+    persistence:
+      enabled: true
+      type: pvc
+      size: 20Gi
+      accessMode: ReadWriteOnce
+      storageClass: ""       # "" = cluster default storage class
+      mountPath: /var/lib/postgresql/data
+      subPath: pgdata
+      annotations: {}        # extra annotations for the PVC / claim template
+      hostPath: /mnt/data/cloudcost-postgres   # used only when type=local
+      existingClaim: ""      # mount a pre-created PVC instead of provisioning one
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    probes:
+      enabled: true
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    podSecurityContext:
+      fsGroup: 999
+    securityContext:
+      runAsUser: 999
+      runAsNonRoot: true
 
   labels: {}                 # extra labels stamped on every object
 
 
 # ============================================================================
-# 2. DATABASE  — PostgreSQL deployed by this chart
-# ----------------------------------------------------------------------------
-# Set `enabled: false` here if you want to use your OWN external database
-# instead (then set the connection string in backend.database.url below).
-# ============================================================================
-database:
-  enabled: true
-
-  image:
-    registry: docker.io/library   # official image — do NOT inherit your personal registry
-    repository: postgres
-    tag: "16-alpine"         # PostgreSQL version (kept pinned on purpose)
-
-  # Credentials for the database this chart creates.
-  # These MUST match backend.database.* below so the backend can connect.
-  auth:
-    username: cloudcost
-    password: "changeme"     # CHANGE THIS. Or use an existing secret:
-    database: cloudcost_db
-    existingSecret: ""       # name of a pre-created Secret (overrides the 3 above)
-
-  # Storage for the database files.
-  #   type: pvc        -> normal dynamic volume (recommended)
-  #          azureDisk -> Azure Managed Disk   (storageClass: managed-csi,managed-csi-premium)
-  #          azureFile -> Azure Files (SMB)    (NOT recommended for a database)
-  #          azureBlob -> Azure Blob (blobfuse)
-  #          local     -> node hostPath (single-node / dev only)
-  #          emptyDir  -> ephemeral, data lost on restart (testing only)
-  persistence:
-    enabled: true
-    type: pvc
-    size: 100Gi
-    accessMode: ReadWriteOnce
-    storageClass: ""         # "" = cluster default storage class
-
-  resources:
-    requests:
-      cpu: 500m
-      memory: 1G1
-    limits:
-      cpu: "1"
-      memory: 1Gi
-
-
-# ============================================================================
-# 3. BACKEND  — FastAPI API + background workers
+# 2. BACKEND  — FastAPI API + background workers
 # ============================================================================
 backend:
-  enabled: true
-
+  # Where the backend image is pulled from.
+  #   registry: ""  -> image is already on the node (offline / docker load)
+  #   registry: "docker.io/santosh1031" / "myregistry.azurecr.io" -> pull from there
   image:
+    registry: docker.io/santosh1031
     repository: cloudcost-backend
     tag: "latest"
+    pullPolicy: Always
+    pullSecrets: []          # e.g. [ { name: acr-pull-secret } ] for a private registry
 
   # The backend runs scheduled jobs INSIDE the process, so it must stay at a
   # single replica (more than one would run duplicate jobs).
@@ -105,29 +113,14 @@ backend:
     kind: Deployment         # Deployment or StatefulSet
     replicaCount: 1
 
-  # --------------------------------------------------------------------------
-  # DATABASE CONNECTION  — how the backend reaches PostgreSQL
-  # --------------------------------------------------------------------------
-  # OPTION A (default): use the database this chart deploys (section 2 above).
-  #   Leave `url` empty. The connection string is built automatically from the
-  #   parts below, pointing at the in-cluster PostgreSQL service.
-  #
-  # OPTION B: use your OWN external database.
-  #   1) set `database.enabled: false` in section 2
-  #   2) put the full connection string in `url` here.
-  #      IMPORTANT: URL-encode special characters in the password
-  #      ( @ -> %40   # -> %23   $ -> %24   & -> %26 )
-  #      Example:
-  #      url: "postgresql+asyncpg://cloudcost:Infra%40%23%24%267777@10.0.0.5:5432/cloudcost_db"
-  # --------------------------------------------------------------------------
-  database:
-    url: ""                          # <-- set this for an EXTERNAL database
-    driver: "postgresql+asyncpg"
-    host: ""                         # "" = in-cluster DB service (auto)
-    port: 5432
-    name: "cloudcost_db"             # must match database.auth.database
-    user: "cloudcost"                # must match database.auth.username
-    password: "changeme"             # must match database.auth.password
+  # Service port the API listens on (internal). Rarely changed.
+  service:
+    type: ClusterIP
+    port: 8000               # Service port
+    targetPort: 8000         # container port the app listens on
+
+  # NOTE: all database connection settings (in-cluster or external) live in
+  # ONE place: global.database (section 1). The backend reads from there.
 
   # Non-secret application settings.
   config:
@@ -135,8 +128,12 @@ backend:
     bcryptSaltRound: 12
     batchSize: 100
     maxDelete: 500
-    # Google OAuth callback. Must be your PUBLIC backend URL + /auth/google/callback
-    redirectUri: "https://cloudcost-api.infrashift.tech/auth/google/callback"
+    # Google OAuth callback. AUTO-DERIVED from your ingress host when set:
+    #   https://<host>/api/auth/google/callback  (https when TLS is on, else http).
+    # Leave EMPTY in IP-only mode — Google does not accept a bare IP as a redirect
+    # URI, so Google login needs a real domain. Only set this by hand if you run
+    # Google login on a host that isn't your ingress host.
+    redirectUri: ""
     smtp:
       server: "smtp.gmail.com"
       port: 587
@@ -176,15 +173,25 @@ backend:
   # have an ingress controller installed (e.g. nginx), and DNS + TLS cert are
   # handled outside this chart. This block only creates the routing rule.
   ingress:
-    enabled: true                        # true = create the public route; false = internal only (port-forward)
-    className: ""                        # ingress controller class, e.g. "nginx". "" = inherit global.ingress.className
-    host: cloudcost-api.infrashift.tech  # the public domain for the API — point your DNS record at the ingress IP
-    path: /                              # URL path to route (usually "/")
-    pathType: Prefix
-    annotations: {}                      # controller / cert-manager settings, e.g. { cert-manager.io/cluster-issuer: letsencrypt-prod }
-    tls:
-      enabled: true                      # true = serve over HTTPS
-      secretName: cloudcost-api-tls      # name of the K8s Secret holding the TLS certificate (cert-manager can create it)
+    enabled: false                       # true = create the public route; false = internal only (port-forward)
+    className: nginx                     # ingress controller class. "" = cluster default ingress class
+    annotations:
+      # Strip the /api prefix before forwarding to the backend (nginx-ingress).
+      nginx.ingress.kubernetes.io/rewrite-target: /$2
+      # cert-manager etc. can be added here too, e.g. cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Have a DNS domain? UNCOMMENT the host line and set it.
+    # No domain? Leave it commented — the API is served on the ingress
+    # controller's public IP over HTTP (kubectl -n ingress-nginx get svc).
+    # The paths below are REQUIRED (they route the traffic) — do not comment them.
+    hosts:
+      - #host: cloudcost-api.infrashift.tech
+        paths:
+          - path: /api(/|$)(.*)          # backend served under /api — works on any IP or domain
+            pathType: ImplementationSpecific
+    # HTTPS. Add an entry per certificate (needs a real host above). Example:
+    #   - secretName: cloudcost-api-tls
+    #     hosts: [ cloudcost-api.infrashift.tech ]
+    tls: []
 
   resources:
     requests:
@@ -214,16 +221,26 @@ backend:
 
 
 # ============================================================================
-# 4. FRONTEND  — React app served by nginx
+# 3. FRONTEND  — React app served by nginx
 # ============================================================================
 frontend:
-  enabled: true
-
+  # Where the frontend image is pulled from.
+  #   registry: ""  -> image is already on the node (offline / docker load)
+  #   registry: "docker.io/santosh1031" / "myregistry.azurecr.io" -> pull from there
   image:
+    registry: docker.io/santosh1031
     repository: cloudcost-ui           # your built UI image
     tag: "latest"
+    pullPolicy: Always
+    pullSecrets: []          # e.g. [ { name: acr-pull-secret } ] for a private registry
 
   replicaCount: 2
+
+  # Service port nginx serves on (internal). Rarely changed.
+  service:
+    type: ClusterIP
+    port: 80                 # Service port
+    targetPort: 80           # container port nginx listens on
 
   # The frontend calls the backend at this URL. It is injected at startup, so
   # you do NOT need to rebuild the image to point at a different backend.
@@ -232,7 +249,7 @@ frontend:
   #                  (the default build uses http://127.0.0.1:8000)
   runtimeConfig:
     enabled: true
-    apiBaseUrl: "https://cloudcost-api.infrashift.tech"
+    apiBaseUrl: "/api"                   # relative: browser calls <current host>/api — works on any IP or domain
     replaceFrom: "http://127.0.0.1:8000"
 
   # ── Public UI URL (Ingress) ───────────────────────────────────────────────
@@ -240,15 +257,22 @@ frontend:
   # an ingress controller must be installed, and DNS + TLS are set up outside
   # this chart. This block only creates the routing rule.
   ingress:
-    enabled: true                        # true = create the public route; false = internal only (port-forward)
-    className: ""                        # ingress controller class, e.g. "nginx". "" = inherit global.ingress.className
-    host: cloudcost.infrashift.tech      # the public domain for the UI — point your DNS record at the ingress IP
-    path: /                              # URL path to route (usually "/")
-    pathType: Prefix
+    enabled: false                       # true = create the public route; false = internal only (port-forward)
+    className: nginx                     # ingress controller class. "" = cluster default ingress class
     annotations: {}                      # controller / cert-manager settings, e.g. { cert-manager.io/cluster-issuer: letsencrypt-prod }
-    tls:
-      enabled: true                      # true = serve over HTTPS
-      secretName: cloudcost-ui-tls       # name of the K8s Secret holding the TLS certificate (cert-manager can create it)
+    # Have a DNS domain? UNCOMMENT the host line and set it.
+    # No domain? Leave it commented — the UI is served on the ingress
+    # controller's public IP over HTTP (kubectl -n ingress-nginx get svc).
+    # The paths below are REQUIRED (they route the traffic) — do not comment them.
+    hosts:
+      - #host: cloudcost.infrashift.tech
+        paths:
+          - path: /
+            pathType: Prefix
+    # HTTPS. Add an entry per certificate (needs a real host above). Example:
+    #   - secretName: cloudcost-ui-tls
+    #     hosts: [ cloudcost.infrashift.tech ]
+    tls: []
 
   resources:
     requests:

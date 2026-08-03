@@ -8,10 +8,11 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  registry: ""            # inherits global.image.registry when empty
+  registry: ""            # "" -> image already on node; else e.g. docker.io/santosh1031
   repository: cloudcost-backend
   tag: "latest"
-  pullPolicy: ""          # inherits global.image.pullPolicy when empty
+  pullPolicy: IfNotPresent
+  pullSecrets: []         # e.g. [ { name: acr-pull-secret } ] for a private registry
 
 # --- Workload shape (fully dynamic) -----------------------------------------
 # kind: Deployment (default) or StatefulSet.
@@ -39,8 +40,9 @@ config:
   bcryptSaltRound: 12
   batchSize: 100
   maxDelete: 500
-  # Google OAuth callback — must match the public backend host in production.
-  redirectUri: "http://localhost:8000/auth/google/callback"
+  # Google OAuth callback — AUTO-DERIVED from the ingress host when set
+  # (https://<host>/api/auth/google/callback). Empty = Google login off / IP mode.
+  redirectUri: ""
   smtp:
     server: "smtp.gmail.com"
     port: 587
@@ -48,17 +50,8 @@ config:
   extraEnv: {}
 
 # --- Database connection ----------------------------------------------------
-# If `url` is set it is used verbatim (remember to URL-encode the password).
-# Otherwise a URL is built from the parts below. `host` defaults to the
-# in-cluster PostgreSQL service created by the database subchart.
-database:
-  url: ""
-  driver: "postgresql+asyncpg"
-  host: ""                   # "" -> <release>-postgres.<namespace>.svc.cluster.local
-  port: 5432
-  name: "cloudcost_db"
-  user: "cloudcost"
-  password: "changeme"       # prefer secrets.existingSecret in production
+# NOTE: all database settings live in ONE place: global.database (top-level
+# values.yaml). The backend helpers read the connection details from there.
 
 # --- Secrets ----------------------------------------------------------------
 # When existingSecret is set, all sensitive env is sourced from it (keys must
@@ -96,17 +89,18 @@ persistence:
   hostPath: /mnt/data/cloudcost-assets
   existingClaim: ""
 
-# --- Ingress (backend API host — matches cloudcost-api* pattern) ------------
+# --- Ingress (list form: hosts[] each with paths[], tls[]) ------------------
 ingress:
   enabled: false
-  className: ""              # "" -> inherits global.ingress.className
-  host: cloudcost-api.example.com
-  path: /
-  pathType: Prefix
-  annotations: {}
-  tls:
-    enabled: false
-    secretName: ""
+  className: ""              # ingress controller class, e.g. "nginx". "" = cluster default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2   # strip /api before forwarding to the backend
+  hosts:
+    - host: ""               # "" = catch-all on the ingress IP (HTTP)
+      paths:
+        - path: /api(/|$)(.*)   # backend served under /api
+          pathType: ImplementationSpecific
+  tls: []                    # e.g. [ { secretName: my-tls, hosts: [ my.host ] } ]
 
 # --- Autoscaling (disabled by default because of in-process workers) --------
 autoscaling:

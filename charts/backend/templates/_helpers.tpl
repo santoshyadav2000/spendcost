@@ -19,7 +19,7 @@
 {{- end -}}
 
 {{- define "backend.image" -}}
-{{- $reg := .Values.image.registry | default (.Values.global).image.registry -}}
+{{- $reg := .Values.image.registry -}}
 {{- if $reg -}}
 {{- printf "%s/%s:%s" $reg .Values.image.repository .Values.image.tag -}}
 {{- else -}}
@@ -28,7 +28,7 @@
 {{- end -}}
 
 {{- define "backend.pullPolicy" -}}
-{{- .Values.image.pullPolicy | default (.Values.global).image.pullPolicy | default "IfNotPresent" -}}
+{{- .Values.image.pullPolicy | default "IfNotPresent" -}}
 {{- end -}}
 
 {{- define "backend.secretName" -}}
@@ -51,21 +51,59 @@
 {{- end -}}
 {{- end -}}
 
-{{/* Resolved in-cluster DB host */}}
+{{/* In-cluster PostgreSQL service host (deploy mode) */}}
 {{- define "backend.dbHost" -}}
-{{- if .Values.database.host -}}
-{{- .Values.database.host -}}
-{{- else -}}
 {{- printf "%s-postgres.%s.svc.cluster.local" .Release.Name (include "backend.namespace" .) -}}
 {{- end -}}
+
+{{/* DATABASE_URL for EXTERNAL mode only — the full connection string from values */}}
+{{- define "backend.databaseUrl" -}}
+{{- .Values.global.database.url -}}
 {{- end -}}
 
-{{/* Resolved DATABASE_URL (explicit url wins, otherwise built from parts) */}}
-{{- define "backend.databaseUrl" -}}
-{{- if .Values.database.url -}}
-{{- .Values.database.url -}}
+{{/* Name of the Secret the database subchart creates (deploy mode) */}}
+{{- define "backend.dbSecretName" -}}
+{{- printf "%s-postgres-auth" .Release.Name -}}
+{{- end -}}
+
+{{/* Deploy-mode DB env: read credentials from the database Secret and build
+     DATABASE_URL from them at runtime (so nothing is in values.yaml). */}}
+{{- define "backend.dbEnv" -}}
+{{- $db := .Values.global.database -}}
+- name: POSTGRES_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "backend.dbSecretName" . }}
+      key: POSTGRES_USER
+- name: POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "backend.dbSecretName" . }}
+      key: POSTGRES_PASSWORD
+- name: POSTGRES_DB
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "backend.dbSecretName" . }}
+      key: POSTGRES_DB
+- name: DATABASE_URL
+  value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "backend.dbHost" . }}:{{ $db.service.port }}/$(POSTGRES_DB)"
+{{- end -}}
+
+{{/* Google OAuth redirect URI — DYNAMIC.
+     If an ingress host is set, build "<scheme>://<host>/api/auth/google/callback"
+     (https when TLS is configured). If no host (IP mode), fall back to the
+     explicit config.redirectUri, since OAuth needs an absolute URL. */}}
+{{- define "backend.redirectUri" -}}
+{{- $host := "" -}}
+{{- range .Values.ingress.hosts -}}
+{{- if and (not $host) .host -}}{{- $host = .host -}}{{- end -}}
+{{- end -}}
+{{- if and .Values.ingress.enabled $host -}}
+{{- $scheme := "http" -}}
+{{- if .Values.ingress.tls -}}{{- $scheme = "https" -}}{{- end -}}
+{{- printf "%s://%s/api/auth/google/callback" $scheme $host -}}
 {{- else -}}
-{{- printf "%s://%s:%s@%s:%v/%s" .Values.database.driver .Values.database.user .Values.database.password (include "backend.dbHost" .) .Values.database.port .Values.database.name -}}
+{{- .Values.config.redirectUri -}}
 {{- end -}}
 {{- end -}}
 
@@ -86,5 +124,5 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- end -}}
 
 {{- define "backend.ingressClassName" -}}
-{{- .Values.ingress.className | default (.Values.global).ingress.className -}}
+{{- .Values.ingress.className -}}
 {{- end -}}

@@ -1,8 +1,6 @@
-{{- if .Values.global.namespace.create }}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ include "cloudcost.namespace" . }}
   labels:
     {{- include "cloudcost.commonLabels" . | nindent 4 }}
-{{- end }}
