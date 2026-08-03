@@ -16,18 +16,15 @@ keywords:
 maintainers:
   - name: Infrashift
 
-# Subcharts. Each is toggled via its own `<name>.enabled` flag so you can
-# install any subset (e.g. use an external DB by disabling `database`).
+# Subcharts. Backend and frontend always install. The database subchart only
+# renders when global.database.existingDatabase is false (gated inside its templates).
 dependencies:
   - name: database
     version: "0.1.0"
     repository: "file://charts/database"
-    condition: database.enabled
   - name: backend
     version: "0.1.0"
     repository: "file://charts/backend"
-    condition: backend.enabled
   - name: frontend
     version: "0.1.0"
     repository: "file://charts/frontend"
-    condition: frontend.enabled

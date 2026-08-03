@@ -1,3 +1,5 @@
+{{- $db := .Values.global.database -}}
+{{- if not $db.existingDatabase }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -12,7 +14,7 @@ spec:
     {{- include "database.selectorLabels" . | nindent 4 }}
   ports:
     - name: postgres
-      port: {{ .Values.service.port }}
+      port: {{ $db.service.port }}
       targetPort: postgres
 ---
 apiVersion: v1
@@ -23,10 +25,11 @@ metadata:
   labels:
     {{- include "database.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.service.type }}
+  type: {{ $db.service.type }}
   selector:
     {{- include "database.selectorLabels" . | nindent 4 }}
   ports:
     - name: postgres
-      port: {{ .Values.service.port }}
+      port: {{ $db.service.port }}
       targetPort: postgres
+{{- end }}

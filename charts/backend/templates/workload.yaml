@@ -34,7 +34,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "backend.serviceAccountName" . }}
-      {{- with (.Values.global).image.pullSecrets }}
+      {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -42,7 +42,7 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if and .Values.migrations.waitForDb (or .Values.database.host (.Values.global)) }}
+      {{- if and .Values.migrations.waitForDb (not .Values.global.database.existingDatabase) }}
       initContainers:
         - name: wait-for-db
           image: {{ include "backend.image" . }}
@@ -51,8 +51,8 @@ spec:
             - sh
             - -c
             - |
-              echo "Waiting for database {{ include "backend.dbHost" . }}:{{ .Values.database.port }} ..."
-              until pg_isready -h {{ include "backend.dbHost" . }} -p {{ .Values.database.port }}; do
+              echo "Waiting for database {{ include "backend.dbHost" . }}:{{ .Values.global.database.service.port }} ..."
+              until pg_isready -h {{ include "backend.dbHost" . }} -p {{ .Values.global.database.service.port }}; do
                 sleep 3
               done
               echo "Database is ready."
@@ -74,6 +74,10 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
+          {{- if not .Values.global.database.existingDatabase }}
+          env:
+            {{- include "backend.dbEnv" . | nindent 12 }}
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "backend.configName" . }}

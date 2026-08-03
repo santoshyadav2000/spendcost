@@ -1,87 +1,12 @@
 # ============================================================================
 # database — PostgreSQL StatefulSet
+# ----------------------------------------------------------------------------
+# There are NO database settings here. Everything (mode, image, credentials,
+# storage, resources, probes, security context) is configured in ONE place:
+# global.database in the top-level values.yaml. These templates read only from
+# there. The keys below only affect resource naming/namespace and are rarely
+# changed.
 # ============================================================================
-enabled: true
-
-# Override the namespace resolution locally if needed (usually inherited).
 namespaceOverride: ""
-
 nameOverride: ""
 fullnameOverride: ""
-
-image:
-  registry: ""            # inherits global.image.registry when empty
-  repository: postgres
-  tag: "16-alpine"
-  pullPolicy: ""          # inherits global.image.pullPolicy when empty
-
-# Number of replicas. PostgreSQL primary is single-writer; keep at 1 unless
-# you layer replication on top.
-replicaCount: 1
-
-# --- Database bootstrap ------------------------------------------------------
-auth:
-  username: cloudcost
-  password: "changeme"          # store in a real Secret / --set for prod
-  database: cloudcost_db
-  # Use an existing secret instead of the inline values above.
-  existingSecret: ""            # secret must contain keys below
-  secretKeys:
-    usernameKey: POSTGRES_USER
-    passwordKey: POSTGRES_PASSWORD
-    databaseKey: POSTGRES_DB
-
-service:
-  # Headless service is always created for stable StatefulSet DNS.
-  port: 5432
-  type: ClusterIP
-
-# --- Persistence / dynamic volume backend -----------------------------------
-# type controls how the data volume is provisioned:
-#   pvc        -> dynamic PVC via storageClassName (default k8s path)
-#   azureDisk  -> Azure Managed Disk CSI  (set storageClass: managed-csi)
-#   azureFile  -> Azure Files CSI (SMB)   (set storageClass: azurefile-csi)
-#   azureBlob  -> Azure Blob CSI (blobfuse)(set storageClass: azureblob-fuse-premium)
-#   local      -> hostPath on the node (dev / single-node only)
-#   emptyDir   -> ephemeral, data lost on pod restart (NOT for real data)
-persistence:
-  enabled: true
-  type: pvc
-  size: 10Gi
-  accessMode: ReadWriteOnce
-  storageClass: ""              # "" = cluster default StorageClass
-  mountPath: /var/lib/postgresql/data
-  subPath: pgdata
-  annotations: {}
-  # hostPath used only when type=local
-  hostPath: /mnt/data/cloudcost-postgres
-  # existingClaim skips volumeClaimTemplate and mounts a pre-made PVC
-  existingClaim: ""
-
-resources:
-  requests:
-    cpu: 250m
-    memory: 256Mi
-  limits:
-    cpu: "1"
-    memory: 1Gi
-
-# Extra PostgreSQL env / tuning
-extraEnv: []
-
-podAnnotations: {}
-podSecurityContext:
-  fsGroup: 999
-securityContext:
-  runAsUser: 999
-  runAsNonRoot: true
-
-nodeSelector: {}
-tolerations: []
-affinity: {}
-
-# Health probes (pg_isready based)
-probes:
-  enabled: true
-  initialDelaySeconds: 15
-  periodSeconds: 10

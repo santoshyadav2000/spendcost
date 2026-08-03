@@ -26,27 +26,23 @@
 {{- end -}}
 {{- end -}}
 
-{{/* Image reference honouring global registry fallback */}}
+{{/* Image reference — all database settings come from global.database */}}
 {{- define "database.image" -}}
-{{- $reg := .Values.image.registry | default (.Values.global).image.registry -}}
-{{- if $reg -}}
-{{- printf "%s/%s:%s" $reg .Values.image.repository .Values.image.tag -}}
+{{- $img := .Values.global.database.image -}}
+{{- if $img.registry -}}
+{{- printf "%s/%s:%s" $img.registry $img.repository $img.tag -}}
 {{- else -}}
-{{- printf "%s:%s" .Values.image.repository .Values.image.tag -}}
+{{- printf "%s:%s" $img.repository $img.tag -}}
 {{- end -}}
 {{- end -}}
 
 {{- define "database.pullPolicy" -}}
-{{- .Values.image.pullPolicy | default (.Values.global).image.pullPolicy | default "IfNotPresent" -}}
+{{- .Values.global.database.image.pullPolicy | default "IfNotPresent" -}}
 {{- end -}}
 
 {{/* Secret name holding credentials */}}
 {{- define "database.secretName" -}}
-{{- if .Values.auth.existingSecret -}}
-{{- .Values.auth.existingSecret -}}
-{{- else -}}
 {{- printf "%s-auth" (include "database.fullname" .) -}}
-{{- end -}}
 {{- end -}}
 
 {{/* Selector labels */}}
