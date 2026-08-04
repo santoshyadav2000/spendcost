@@ -1,134 +1,305 @@
 # CloudCost Helm Chart
 
-Umbrella Helm chart that installs the full CloudCost platform:
+Helm chart for installing the CloudCost platform on Kubernetes.
 
-| Component | Subchart | Workload | Port |
-|---|---|---|---|
-| FastAPI backend (+ background workers) | `charts/backend` | Deployment (switchable to StatefulSet) | 8000 |
-| React UI (nginx) | `charts/frontend` | Deployment | 80 |
-| PostgreSQL | `charts/database` | StatefulSet | 5432 |
+| Component | Workload | Internal Service port | Purpose |
+|---|---|---:|---|
+| FastAPI backend | Deployment or StatefulSet | 8000 | API and background workers |
+| React/nginx frontend | Deployment | 8080 | Web interface; nginx listens on container port 80 |
+| PostgreSQL | StatefulSet | 5432 | Bundled database when enabled |
 
-Everything is configured from a **single file: `values.yaml`**. The same file
-works in any environment — you just set the values to match where you install.
-It is offline / air-gap friendly (no registry pulls needed when images are
-loaded locally).
-
-```
-helm/
-├── Chart.yaml            # umbrella chart definition
-├── values.yaml           # << THE ONLY FILE YOU EDIT (all settings live here)
-├── templates/            # namespace + shared helpers
-└── charts/               # internal component defaults (you don't edit these)
-    ├── database/         # PostgreSQL StatefulSet
-    ├── backend/          # FastAPI (workload kind is dynamic)
-    └── frontend/         # React + nginx (runtime API-URL injection)
-```
-
-> You only ever edit the top-level `values.yaml`. The `values.yaml` files inside
-> `charts/` are internal defaults that `values.yaml` overrides.
+All chart settings are in the top-level `values.yaml`. The files under
+`charts/*/values.yaml` are subchart defaults and normally do not need editing.
 
 ## Prerequisites
 
-- Kubernetes 1.23+
-- Helm 3.8+
-- Container images available to the cluster:
-  - `cloudcost-backend`  (built from `../costmanagement/Dockerfile`)
-  - `cloudcost-ui`       (built from `../costmanagement_ui/Dockerfile`)
-  - `postgres:16-alpine` (or an internal mirror)
+- Kubernetes 1.23 or newer
+- Helm 3.8 or newer
+- An ingress controller, such as ingress-nginx, when public access is required
+- A default StorageClass, or an explicitly configured StorageClass, when the
+  bundled PostgreSQL PVC is enabled
+- Container images that the cluster can pull
 
-### Build the images
+The chart creates application Ingress resources, but it does not install an
+ingress controller or create DNS records and TLS certificates.
 
-```sh
-# Backend
-docker build -t cloudcost-backend:latest ../costmanagement
+## Configure and install
 
-# Frontend  (the API URL is a placeholder; it is rewritten at runtime by Helm)
-docker build -t cloudcost-ui:latest \
-  --build-arg VITE_API_BASE_URL=http://127.0.0.1:8000 \
-  ../costmanagement_ui
-```
-
-## Install
-
-1. Open `values.yaml` and set the values for your environment (namespace,
-   database password, image names, ingress hosts, secrets, storage).
-2. Validate, then install:
+Review `values.yaml`, especially the namespace, image references, application
+secrets, database mode, storage, and ingress settings.
 
 ```sh
-helm lint .
-helm template cloudcost . | less        # preview the generated Kubernetes YAML
+helm lint . --strict
+helm template cloudcost .
 helm upgrade --install cloudcost .
 ```
 
-Secrets can be passed at install time instead of writing them into the file:
+`global.namespace.name` controls the namespace of the application resources,
+and the chart creates that namespace. The command above stores the Helm release
+metadata in the current Helm namespace (`default` unless another namespace is
+selected). Keep using the same Helm namespace for every upgrade of that release.
+
+To override a non-secret value without editing `values.yaml`:
 
 ```sh
 helm upgrade --install cloudcost . \
-  --set backend.secrets.secretKey=$SECRET_KEY \
-  --set backend.secrets.googleClientSecret=$GSECRET \
-  --set database.auth.password=$DBPASS
+  --set backend.image.tag=1.2.3 \
+  --set frontend.image.tag=1.2.3
 ```
 
-## Using your own (external) database
+## Database configuration
 
-By default the chart deploys PostgreSQL for you. To use an existing database:
+The chart supports two database modes through `global.database`.
 
-1. In `values.yaml`, set `database.enabled: false`.
-2. Set the full connection string in `backend.database.url` (URL-encode special
-   characters in the password):
+### Bundled PostgreSQL
+
+This is the default mode:
 
 ```yaml
-database:
-  enabled: false
-
-backend:
+global:
   database:
-    url: "postgresql+asyncpg://cloudcost:Infra%40%23%24%267777@10.0.0.5:5432/cloudcost_db"
+    existingDatabase: false
 ```
 
-## Dynamic storage backends
+In this mode, the chart deploys PostgreSQL and creates a Secret named
+`<release>-postgres-auth`. For release `cloudcost`, the name is
+`cloudcost-postgres-auth`.
 
-Set `persistence.type` (database and backend) to choose the volume source:
+- `POSTGRES_USER` is `cloudcost`.
+- `POSTGRES_DB` is `cloudcost_db`.
+- `POSTGRES_PASSWORD` is randomly generated with 32 alphanumeric characters on
+  the first installation.
+- A normal `helm upgrade` reuses the password already stored in the Secret. It
+  does not rotate the password.
+- The backend reads the credentials directly from this Secret. The database
+  username and password are not configured in `values.yaml`.
 
-| `type` | Backing | Notes |
-|---|---|---|
-| `pvc` | dynamic PVC via `storageClass` | default; `""` uses the cluster default class |
-| `azureDisk` | Azure Managed Disk CSI | `storageClass: managed-csi`, RWO (best for the DB) |
-| `azureFile` | Azure Files CSI (SMB) | `storageClass: azurefile-csi`, supports RWX |
-| `azureBlob` | Azure Blob CSI (blobfuse) | `storageClass: azureblob-fuse-premium` |
-| `local` | node `hostPath` | dev / single-node only |
-| `emptyDir` | ephemeral | data lost on restart — not for real data |
+View the generated password in PowerShell:
 
-The database uses `volumeClaimTemplates` for dynamic types. The backend can
-optionally persist the billing CSV assets directory (`backend.persistence`).
+```powershell
+$encoded = kubectl -n cloudcost-test get secret cloudcost-postgres-auth -o jsonpath="{.data.POSTGRES_PASSWORD}"
+[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded))
+```
 
-## Backend workload kind (dynamic)
+On Linux or macOS:
 
-`backend.workload.kind` accepts `Deployment` (default) or `StatefulSet`.
+```sh
+kubectl -n cloudcost-test get secret cloudcost-postgres-auth \
+  -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 --decode
+echo
+```
 
-> The backend starts background workers **in-process**. Running more than one
-> replica duplicates scheduled jobs, so `replicaCount` stays at `1`.
+Back up this Secret together with the database. If the release is uninstalled
+but its PVC is retained, a later fresh installation can generate a different
+password while the retained database still expects the old one.
+
+### Existing PostgreSQL database
+
+To use a database that already exists, the backend needs a complete SQLAlchemy
+connection URL.
+
+For development or testing, it can be supplied directly in `values.yaml`:
+
+```yaml
+global:
+  database:
+    existingDatabase: true
+    url: "postgresql+asyncpg://cloudcost:encoded-password@postgres.example.internal:5432/cloudcost_db"
+```
+
+URL-encode special characters in the username and password. For example, `@`
+becomes `%40`, `#` becomes `%23`, `$` becomes `%24`, and `&` becomes `%26`.
+
+For production, do not commit the connection URL to Git. Create a Kubernetes
+Secret through your secret-management process and tell the backend to use it:
+
+```yaml
+global:
+  database:
+    existingDatabase: true
+
+backend:
+  secrets:
+    existingSecret: cloudcost-backend-secret
+```
+
+The pre-created Secret must be in `global.namespace.name` and must contain
+`DATABASE_URL` and the application secret values needed by the backend. A
+minimal example is:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudcost-backend-secret
+  namespace: cloudcost-test
+type: Opaque
+stringData:
+  DATABASE_URL: "postgresql+asyncpg://cloudcost:encoded-password@postgres.example.internal:5432/cloudcost_db"
+  SECRET_KEY: "replace-with-a-long-random-value"
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
+  SMTP_USER: ""
+  SMTP_PASSWORD: ""
+```
+
+When `existingDatabase: true`, the bundled PostgreSQL Secret, Service,
+StatefulSet, and PVC are not created. This logic is independent of
+`backend.secrets.existingSecret`.
 
 ## Database migrations
 
-A Helm post-install/post-upgrade hook Job runs `alembic upgrade head`. It waits
-for the database TCP port first and injects the connection URL from the backend
-Secret. Toggle with `backend.migrations.enabled`.
+The chart runs a post-install and post-upgrade Helm hook Job that applies:
 
-## Networking
+```text
+alembic upgrade heads
+```
 
-The frontend and backend use **separate Ingress hosts**. The frontend's API URL
-is injected at pod startup via `frontend.runtimeConfig.apiBaseUrl`, so the image
-does not need rebuilding to point at a different backend.
+It also creates the configured PostgreSQL extensions with `IF NOT EXISTS`.
+Control this behavior with:
 
-> **CORS note:** the backend allows a fixed set of browser origins (defined in
-> `costmanagement/src/middleware.py`). The frontend host you expose must be one
-> of those origins, otherwise the browser will block API calls. Update that list
-> in the backend if you add a new frontend host.
+```yaml
+backend:
+  migrations:
+    enabled: true
+    extensions:
+      - uuid-ossp
+      - pgcrypto
+```
 
-## Security notes
+The database user must have permission to create these extensions. If a managed
+database does not allow that permission, have an administrator create the
+extensions first or set `extensions: []`.
 
-- All sensitive values (DB password, JWT secret, Google OAuth, SMTP) render into
-  a Kubernetes `Secret`, never a ConfigMap.
-- For production, prefer `existingSecret` (backend + database) over inline values
-  so credentials never live in `values.yaml`.
+## Storage
+
+`global.database.persistence.type` and `backend.persistence.type` select the
+volume source.
+
+| Type | Storage | Guidance |
+|---|---|---|
+| `pvc` | Dynamically provisioned PVC | Default and recommended for the bundled database |
+| `azureDisk` | Azure Managed Disk CSI | Suitable for a single PostgreSQL pod; ReadWriteOnce |
+| `azureFile` | Azure Files CSI | Supports ReadWriteMany; generally avoid for PostgreSQL data |
+| `azureBlob` | Azure Blob CSI/blobfuse | Object-backed filesystem; avoid for PostgreSQL data |
+| `local` | Node `hostPath` | Development or fixed single-node use only |
+| `emptyDir` | Ephemeral pod storage | Testing only; data is lost with the pod |
+
+For production PostgreSQL, use durable storage, backups, and a tested restore
+procedure. A managed PostgreSQL service is preferable when database high
+availability, automated backups, and maintenance are required.
+
+## Networking and public access
+
+The backend and frontend Services are `ClusterIP`; their ports are reachable
+inside the cluster only:
+
+```text
+Internet
+   |
+public IP :80 or :443
+   |
+Ingress controller LoadBalancer
+   |-- /api/... -> backend Service :8000 -> backend container :8000
+   `-- /        -> frontend Service :8080 -> nginx container :80
+```
+
+Changing the frontend Service from port `8080` to port `80` does not create a
+new public IP and is not required for public access. The Ingress sends traffic
+to the configured internal Service port automatically.
+
+### Access without a domain name
+
+With the default hostless Ingress rules, get the ingress controller public IP:
+
+```sh
+kubectl -n ingress-nginx get service
+```
+
+If the public IP is `20.10.30.40`, the routes are:
+
+```text
+http://20.10.30.40/       frontend
+http://20.10.30.40/api/   backend API
+```
+
+Only one application can own the same public IP, port, hostname, and path
+combination. Another application on the same ingress controller must use a
+different path, such as `/grafana`, or later use a different DNS hostname. If
+two Ingress resources both claim the hostless `/` path, routing is ambiguous
+and controller-specific.
+
+### Access with DNS and TLS
+
+Many applications can share one public IP and ports `80` and `443`. DNS names
+distinguish them; the DNS record itself does not contain an application Service
+port.
+
+```text
+cloudcost.example.com -> 20.10.30.40 -> CloudCost Ingress rule
+grafana.example.com   -> 20.10.30.40 -> Grafana Ingress rule
+```
+
+Set the relevant `host` fields under `backend.ingress.hosts` and
+`frontend.ingress.hosts`, then configure `tls` with the Kubernetes TLS Secret.
+Both Ingress resources must use the ingress class handled by the intended
+controller, currently:
+
+```yaml
+className: nginx
+```
+
+If the cluster has multiple ingress controllers, assign each one a distinct
+IngressClass and set `className` accordingly. Each controller can use its own
+LoadBalancer and public IP, or several applications can safely share one
+controller using different hostnames or non-conflicting paths.
+
+## Backend workload and scaling
+
+`backend.workload.kind` accepts `Deployment` or `StatefulSet`.
+
+The backend currently runs scheduled workers inside the application process.
+Keep it at one replica, with its PodDisruptionBudget and autoscaling disabled,
+unless the API and scheduled-worker responsibilities are separated. Otherwise,
+multiple replicas can run the same scheduled jobs more than once.
+
+The frontend is stateless and can be scaled horizontally.
+
+## Production checklist
+
+- Replace `backend.secrets.secretKey` with a long random value, or provide
+  `backend.secrets.existingSecret` through a secret manager.
+- Use immutable backend and frontend image tags or digests instead of `latest`.
+- Configure DNS, TLS, and an ingress controller appropriate for the cluster.
+- Use durable database storage and establish backup and restore procedures, or
+  use managed PostgreSQL.
+- Verify CPU and memory requests and limits against measured usage.
+- Keep the backend at one replica until background workers are separated.
+- Restrict network access with appropriate firewall rules and Kubernetes
+  NetworkPolicies.
+- Test `helm lint`, rendered manifests, installation, upgrade, rollback, and
+  database restore in a non-production environment.
+
+## Verification and troubleshooting
+
+```sh
+helm status cloudcost
+kubectl -n cloudcost-test get pods,services,ingresses,pvc
+kubectl -n cloudcost-test get jobs
+```
+
+If the Ingress has no public address, check the ingress controller Service, not
+the application Services:
+
+```sh
+kubectl -n ingress-nginx get service
+kubectl get ingressclass
+```
+
+If the application cannot connect to PostgreSQL, confirm the selected database
+mode and inspect the relevant Secret without printing its values:
+
+```sh
+kubectl -n cloudcost-test get secret cloudcost-postgres-auth
+kubectl -n cloudcost-test describe pod <backend-pod-name>
+```
