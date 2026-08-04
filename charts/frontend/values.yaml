@@ -30,7 +30,7 @@ service:
 # Set runtimeConfig.enabled=false to serve the bundle exactly as built.
 runtimeConfig:
   enabled: true
-  apiBaseUrl: "/api"      # relative — works on any IP or domain
+  apiBaseUrl: "/"         # relative — browser calls the current host
   replaceFrom: "http://127.0.0.1:8000"
 
 # --- Ingress (list form: hosts[] each with paths[], tls[]) ------------------
