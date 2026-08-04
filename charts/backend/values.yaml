@@ -94,7 +94,7 @@ ingress:
   enabled: false
   className: ""              # ingress controller class, e.g. "nginx". "" = cluster default
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /$2   # strip /api before forwarding to the backend
+    nginx.ingress.kubernetes.io/rewrite-target: /api/$2   # preserve the backend's /api prefix
   hosts:
     - host: ""               # "" = catch-all on the ingress IP (HTTP)
       paths:

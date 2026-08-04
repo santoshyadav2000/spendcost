@@ -173,11 +173,11 @@ backend:
   # have an ingress controller installed (e.g. nginx), and DNS + TLS cert are
   # handled outside this chart. This block only creates the routing rule.
   ingress:
-    enabled: false                       # true = create the public route; false = internal only (port-forward)
+    enabled: true                       # true = create the public route; false = internal only (port-forward)
     className: nginx                     # ingress controller class. "" = cluster default ingress class
     annotations:
       # Strip the /api prefix before forwarding to the backend (nginx-ingress).
-      nginx.ingress.kubernetes.io/rewrite-target: /$2
+      nginx.ingress.kubernetes.io/rewrite-target: /api/$2
       # cert-manager etc. can be added here too, e.g. cert-manager.io/cluster-issuer: letsencrypt-prod
     # Have a DNS domain? UNCOMMENT the host line and set it.
     # No domain? Leave it commented — the API is served on the ingress
@@ -239,7 +239,7 @@ frontend:
   # Service port nginx serves on (internal). Rarely changed.
   service:
     type: ClusterIP
-    port: 80                 # Service port
+    port: 8080                 # Service port
     targetPort: 80           # container port nginx listens on
 
   # The frontend calls the backend at this URL. It is injected at startup, so
@@ -249,7 +249,7 @@ frontend:
   #                  (the default build uses http://127.0.0.1:8000)
   runtimeConfig:
     enabled: true
-    apiBaseUrl: "/api"                   # relative: browser calls <current host>/api — works on any IP or domain
+    apiBaseUrl: "/"                      # relative: browser calls the current host
     replaceFrom: "http://127.0.0.1:8000"
 
   # ── Public UI URL (Ingress) ───────────────────────────────────────────────
@@ -257,7 +257,7 @@ frontend:
   # an ingress controller must be installed, and DNS + TLS are set up outside
   # this chart. This block only creates the routing rule.
   ingress:
-    enabled: false                       # true = create the public route; false = internal only (port-forward)
+    enabled: true                       # true = create the public route; false = internal only (port-forward)
     className: nginx                     # ingress controller class. "" = cluster default ingress class
     annotations: {}                      # controller / cert-manager settings, e.g. { cert-manager.io/cluster-issuer: letsencrypt-prod }
     # Have a DNS domain? UNCOMMENT the host line and set it.
