@@ -1,0 +1,196 @@
+{{- $ingressEnabled := or .Values.backend.ingress.enabled .Values.frontend.ingress.enabled -}}
+{{- $hasHost := false -}}
+{{- if .Values.frontend.ingress.enabled -}}
+  {{- range .Values.frontend.ingress.hosts -}}
+    {{- if .host -}}
+      {{- $hasHost = true -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+***********************************************************************
+  CloudCost has been successfully installed!
+***********************************************************************
+
+🎉 Deployment Status:
+  Namespace:    {{ .Values.global.namespace.name }}
+  Release Name: {{ .Release.Name }}
+  Chart:        {{ .Chart.Name }}-{{ .Chart.Version }}
+
+================================================================================
+📊 COMPONENTS DEPLOYED
+================================================================================
+
+{{- if not .Values.global.database.existingDatabase }}
+✅ PostgreSQL Database
+   - Service:     {{ .Release.Name }}-postgres.{{ .Values.global.namespace.name }}.svc.cluster.local:{{ .Values.global.database.service.port }}
+   - Storage:     {{ .Values.global.database.persistence.size }} ({{ .Values.global.database.persistence.type }})
+   - Credentials: kubectl get secret {{ .Release.Name }}-postgres-auth -n {{ .Values.global.namespace.name }} -o yaml
+{{- else }}
+✅ External Database
+   - Connected to existing database
+{{- end }}
+
+✅ Backend API (FastAPI)
+   - Replicas:    {{ .Values.backend.workload.replicaCount }}
+   - Image:       {{ .Values.backend.image.registry }}/{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}
+   - Resources:   CPU {{ .Values.backend.resources.requests.cpu }}/{{ .Values.backend.resources.limits.cpu }}, Memory {{ .Values.backend.resources.requests.memory }}/{{ .Values.backend.resources.limits.memory }}
+{{- if .Values.backend.autoscaling.enabled }}
+   - Autoscaling: Enabled ({{ .Values.backend.autoscaling.minReplicas }}-{{ .Values.backend.autoscaling.maxReplicas }} replicas)
+                  CPU: {{ .Values.backend.autoscaling.targetCPUUtilizationPercentage }}%, Memory: {{ .Values.backend.autoscaling.targetMemoryUtilizationPercentage }}%
+{{- end }}
+
+✅ Frontend UI (React/Nginx)
+   - Replicas:    {{ .Values.frontend.replicaCount }}
+   - Image:       {{ .Values.frontend.image.registry }}/{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}
+   - Resources:   CPU {{ .Values.frontend.resources.requests.cpu }}/{{ .Values.frontend.resources.limits.cpu }}, Memory {{ .Values.frontend.resources.requests.memory }}/{{ .Values.frontend.resources.limits.memory }}
+{{- if .Values.frontend.autoscaling.enabled }}
+   - Autoscaling: Enabled ({{ .Values.frontend.autoscaling.minReplicas }}-{{ .Values.frontend.autoscaling.maxReplicas }} replicas)
+                  CPU: {{ .Values.frontend.autoscaling.targetCPUUtilizationPercentage }}%, Memory: {{ .Values.frontend.autoscaling.targetMemoryUtilizationPercentage }}%
+{{- end }}
+
+================================================================================
+🌐 ACCESS YOUR APPLICATION
+================================================================================
+
+{{- if $ingressEnabled }}
+{{- if $hasHost }}
+{{- range .Values.frontend.ingress.hosts }}
+{{- if .host }}
+🔗 Frontend UI:  {{ if $.Values.frontend.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+{{- range .Values.backend.ingress.hosts }}
+{{- if .host }}
+🔗 Backend API:  {{ if $.Values.backend.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}/api
+{{- end }}
+{{- end }}
+{{- else }}
+⚠️  Ingress enabled but NO HOST configured - using Ingress IP:
+
+   1. Get the Ingress Controller IP:
+      kubectl get svc -n ingress-nginx ingress-nginx-controller
+
+   2. Access via IP:
+      Frontend: http://<INGRESS-IP>/
+      Backend:  http://<INGRESS-IP>/api
+
+{{- end }}
+{{- else }}
+⚠️  Ingress DISABLED - using port-forward for local access:
+
+   1. Frontend:
+      kubectl port-forward -n {{ .Values.global.namespace.name }} svc/{{ .Release.Name }}-frontend 8080:{{ .Values.frontend.service.port }}
+      Then open: http://localhost:8080
+
+   2. Backend:
+      kubectl port-forward -n {{ .Values.global.namespace.name }} svc/{{ .Release.Name }}-backend 8000:{{ .Values.backend.service.port }}
+      Then test: curl http://localhost:8000/
+
+{{- end }}
+
+================================================================================
+🔍 MONITORING & TROUBLESHOOTING
+================================================================================
+
+📋 Check pod status:
+   kubectl get pods -n {{ .Values.global.namespace.name }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+📊 View logs:
+   Backend:  kubectl logs -n {{ .Values.global.namespace.name }} -l app.kubernetes.io/name=backend --tail=100 -f
+   Frontend: kubectl logs -n {{ .Values.global.namespace.name }} -l app.kubernetes.io/name=frontend --tail=100 -f
+{{- if not .Values.global.database.existingDatabase }}
+   Database: kubectl logs -n {{ .Values.global.namespace.name }} {{ .Release.Name }}-postgres-0 --tail=100 -f
+{{- end }}
+
+🔧 Execute commands in pods:
+   Backend:  kubectl exec -it -n {{ .Values.global.namespace.name }} deploy/{{ .Release.Name }}-backend -- sh
+{{- if not .Values.global.database.existingDatabase }}
+   Database: kubectl exec -it -n {{ .Values.global.namespace.name }} {{ .Release.Name }}-postgres-0 -- psql -U cloudcost -d cloudcost_db
+{{- end }}
+
+{{- if .Values.backend.autoscaling.enabled }}
+📈 Check HPA status:
+   kubectl get hpa -n {{ .Values.global.namespace.name }} {{ .Release.Name }}-backend
+   kubectl describe hpa -n {{ .Values.global.namespace.name }} {{ .Release.Name }}-backend
+{{- end }}
+
+{{- if .Values.frontend.autoscaling.enabled }}
+   kubectl get hpa -n {{ .Values.global.namespace.name }} {{ .Release.Name }}-frontend
+   kubectl describe hpa -n {{ .Values.global.namespace.name }} {{ .Release.Name }}-frontend
+{{- end }}
+
+================================================================================
+🔐 SECRETS & CREDENTIALS
+================================================================================
+
+{{- if not .Values.global.database.existingDatabase }}
+📦 Database Credentials:
+   
+   Windows PowerShell:
+   kubectl get secret {{ .Release.Name }}-postgres-auth -n {{ .Values.global.namespace.name }} -o yaml
+   # Then manually decode base64 values at: https://www.base64decode.org/
+   
+   Linux/Mac:
+   kubectl get secret {{ .Release.Name }}-postgres-auth -n {{ .Values.global.namespace.name }} -o jsonpath='{.data.POSTGRES_USER}' | base64 -d
+   kubectl get secret {{ .Release.Name }}-postgres-auth -n {{ .Values.global.namespace.name }} -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d
+{{- end }}
+
+🔑 Backend Application Secrets:
+   kubectl get secret {{ .Release.Name }}-backend-secret -n {{ .Values.global.namespace.name }} -o yaml
+
+================================================================================
+📚 NEXT STEPS
+================================================================================
+
+{{- if not $hasHost }}
+1. 🌐 Configure DNS:
+   - Update your DNS to point to the Ingress IP
+   - Edit values.yaml and set frontend.ingress.hosts[0].host and backend.ingress.hosts[0].host
+   - Upgrade: helm upgrade {{ .Release.Name }} . -n {{ .Values.global.namespace.name }}
+
+2. 🔒 Enable HTTPS (TLS):
+   - Install cert-manager: https://cert-manager.io/docs/installation/
+   - Uncomment and configure frontend.ingress.tls and backend.ingress.tls in values.yaml
+   - Add cert-manager annotation: cert-manager.io/cluster-issuer: letsencrypt-prod
+
+{{- end }}
+{{- if eq (int .Values.backend.workload.replicaCount) 1 }}
+3. ⚠️  Production Warning:
+   - Backend is running with 1 replica (contains background workers)
+   - This is correct if using in-process schedulers
+   - For HA, split API and workers into separate deployments
+
+{{- end }}
+{{- if not .Values.backend.autoscaling.enabled }}
+4. 📈 Enable Autoscaling (Optional):
+   - Set backend.autoscaling.enabled=true in values.yaml
+   - Requires metrics-server: kubectl get apiservice v1beta1.metrics.k8s.io
+
+{{- end }}
+{{- if not .Values.global.database.existingDatabase }}
+5. 💾 Setup Database Backups:
+   - Configure automated backups (pg_dump to cloud storage)
+   - Test restore procedures regularly
+
+{{- end }}
+6. 📊 Monitoring (Recommended):
+   - Install Prometheus + Grafana
+   - Add ServiceMonitor for backend metrics
+   - Set up alerts for critical failures
+
+================================================================================
+📖 DOCUMENTATION
+================================================================================
+
+📘 Helm Chart:       {{ .Chart.Home }}
+📙 User Guide:       ./helm/README.md
+🐛 Report Issues:    {{ .Chart.Sources }}
+
+================================================================================
+✨ Thank you for using CloudCost!
+================================================================================
+
+Need help? Check the logs first, then consult the documentation.
+Happy cost monitoring! 💰
+
