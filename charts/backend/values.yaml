@@ -30,6 +30,7 @@ command: []                  # override container command if needed
 args: []
 
 service:
+  annotations: {}
   type: ClusterIP
   port: 8000
   targetPort: 8000
@@ -56,9 +57,12 @@ config:
 # --- Secrets ----------------------------------------------------------------
 # When existingSecret is set, all sensitive env is sourced from it (keys must
 # match the names used by the app). Otherwise a Secret is generated from the
-# values below.
+# values below. Select whether those values are plain text or already Base64.
 secrets:
   existingSecret: ""
+  # plain: Helm encodes values for Kubernetes Secret.data.
+  # base64: values must already be valid Base64.
+  encoding: "plain"
   secretKey: "change-me-please-generate-a-strong-key"
   googleClientId: ""
   googleClientSecret: ""

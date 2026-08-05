@@ -17,6 +17,7 @@ image:
 replicaCount: 2
 
 service:
+  annotations: {}
   type: ClusterIP
   port: 80
   targetPort: 80
