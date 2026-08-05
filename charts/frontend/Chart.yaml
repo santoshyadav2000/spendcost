@@ -2,5 +2,5 @@ apiVersion: v2
 name: frontend
 description: CloudCost React UI served by nginx, with runtime API-URL injection.
 type: application
-version: 0.1.3
+version: 0.1.4
 appVersion: "1.0.0"
