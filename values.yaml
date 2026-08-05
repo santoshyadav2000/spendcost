@@ -38,6 +38,10 @@ global:
     # Connection string for an EXISTING database (used only when
     # existingDatabase: true). URL-encode special chars in the password
     # ( @->%40  #->%23  $->%24  &->%26 ). Leave empty when existingDatabase: false.
+    # urlEncoding:
+    #   plain  -> enter a normal DATABASE_URL; Helm encodes it for Kubernetes Secret.data.
+    #   base64 -> enter a DATABASE_URL that is already Base64-encoded.
+    urlEncoding: "plain"
     # Example: "postgresql+asyncpg://user:pass@myhost:5432/cloudcost_db"
     #url: ""
 
@@ -115,6 +119,7 @@ backend:
 
   # Service port the API listens on (internal). Rarely changed.
   service:
+    annotations: {}          # optional Kubernetes Service annotations
     type: ClusterIP
     port: 8000               # Service port
     targetPort: 8000         # container port the app listens on
@@ -133,7 +138,7 @@ backend:
     # Leave EMPTY in IP-only mode — Google does not accept a bare IP as a redirect
     # URI, so Google login needs a real domain. Only set this by hand if you run
     # Google login on a host that isn't your ingress host.
-    redirectUri: ""
+    #redirectUri: ""
     smtp:
       server: "smtp.gmail.com"
       port: 587
@@ -144,11 +149,14 @@ backend:
   # Sensitive values -> stored in a Kubernetes Secret (never a ConfigMap).
   secrets:
     existingSecret: ""               # use a pre-created Secret instead of the below
-    secretKey: "change-me-generate-a-strong-random-key"
-    googleClientId: ""
-    googleClientSecret: ""
-    smtpUser: "0803santoshyadav@gmail.com"
-    smtpPassword: "bszm uezn uizg sbdv"
+    # plain: enter normal text; Helm encodes it for Kubernetes Secret.data.
+    # base64: enter values that are already Base64-encoded.
+    encoding: "base64"
+    secretKey: "Y2hhbmdlLW1lLWdlbmVyYXRlLWEtc3Ryb25nLXJhbmRvbS1rZXk="
+    #googleClientId: ""
+    #googleClientSecret: ""
+    smtpUser: "MDgwM3NhbnRvc2h5YWRhdkBnbWFpbC5jb20="
+    smtpPassword: "YnN6bXVlem51aXpnc2Jkdg=="
 
   # Database schema migrations (runs `alembic upgrade heads` on install/upgrade).
   migrations:
@@ -236,11 +244,13 @@ frontend:
 
   replicaCount: 1
 
-  # Service port nginx serves on (internal). Rarely changed.
+  # Internal frontend Service. Ingress sends public traffic to port 8080 here;
+  # the Service forwards it to nginx inside the container on port 80.
   service:
+    annotations: {}          # optional Kubernetes Service annotations
     type: ClusterIP
-    port: 8080                 # Service port
-    targetPort: 80           # container port nginx listens on
+    port: 8080                 # Kubernetes Service port, used by Ingress inside the cluster
+    targetPort: 80             # container port where nginx listens inside the frontend pod
 
   # The frontend calls the backend at this URL. It is injected at startup, so
   # you do NOT need to rebuild the image to point at a different backend.

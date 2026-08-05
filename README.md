@@ -63,7 +63,9 @@ global:
 
 In this mode, the chart deploys PostgreSQL and creates a Secret named
 `<release>-postgres-auth`. For release `cloudcost`, the name is
-`cloudcost-postgres-auth`.
+`cloudcost-postgres-auth`. The Secret is rendered with Kubernetes `data:`
+fields, so the manifest contains Base64 values for the database username,
+password, and database name.
 
 - `POSTGRES_USER` is `cloudcost`.
 - `POSTGRES_DB` is `cloudcost_db`.
@@ -104,11 +106,15 @@ For development or testing, it can be supplied directly in `values.yaml`:
 global:
   database:
     existingDatabase: true
+    urlEncoding: plain
     url: "postgresql+asyncpg://cloudcost:encoded-password@postgres.example.internal:5432/cloudcost_db"
 ```
 
 URL-encode special characters in the username and password. For example, `@`
 becomes `%40`, `#` becomes `%23`, `$` becomes `%24`, and `&` becomes `%26`.
+Set `urlEncoding: base64` only when the `url` value is already Base64-encoded.
+The rendered Kubernetes Secret always uses `data.DATABASE_URL`, so the final
+manifest contains Base64 either way.
 
 For production, do not commit the connection URL to Git. Create a Kubernetes
 Secret through your secret-management process and tell the backend to use it:
@@ -146,6 +152,43 @@ stringData:
 When `existingDatabase: true`, the bundled PostgreSQL Secret, Service,
 StatefulSet, and PVC are not created. This logic is independent of
 `backend.secrets.existingSecret`.
+
+### Inline backend secret format
+
+When `backend.secrets.existingSecret` is empty, choose how inline secret values
+are supplied. Plain-text mode accepts normal values and Helm encodes them for
+Kubernetes:
+
+```yaml
+backend:
+  secrets:
+    encoding: plain
+    secretKey: "replace-with-a-long-random-value"
+    smtpUser: "sender@example.com"
+    smtpPassword: "application-password"
+```
+
+Base64 mode accepts values that are already Base64-encoded and validates them
+before rendering the Secret:
+
+```yaml
+backend:
+  secrets:
+    encoding: base64
+    secretKey: "<base64-encoded-value>"
+    smtpUser: "<base64-encoded-value>"
+    smtpPassword: "<base64-encoded-value>"
+```
+
+Use exactly `plain` or `base64`; the chart does not guess the format. Empty
+optional values are allowed. This setting is ignored when `existingSecret` is
+set. Base64 is encoding, not encryption: use `existingSecret` with a proper
+secret manager when values must not be stored in a readable form in Git.
+
+When Helm manages the backend Secret, changes to inline secret values trigger a
+backend pod rollout automatically through a pod-template checksum annotation.
+If `backend.secrets.existingSecret` points to a Secret managed outside Helm,
+update or restart pods through your external secret-management process.
 
 ## Database migrations
 
@@ -267,8 +310,9 @@ The frontend is stateless and can be scaled horizontally.
 
 ## Production checklist
 
-- Replace `backend.secrets.secretKey` with a long random value, or provide
-  `backend.secrets.existingSecret` through a secret manager.
+- Replace `backend.secrets.secretKey` with a long random value encoded according
+  to `backend.secrets.encoding`, or provide `backend.secrets.existingSecret`
+  through a secret manager.
 - Use immutable backend and frontend image tags or digests instead of `latest`.
 - Configure DNS, TLS, and an ingress controller appropriate for the cluster.
 - Use durable database storage and establish backup and restore procedures, or
