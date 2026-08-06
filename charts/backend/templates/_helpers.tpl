@@ -32,11 +32,7 @@
 {{- end -}}
 
 {{- define "backend.secretName" -}}
-{{- if .Values.secrets.existingSecret -}}
-{{- .Values.secrets.existingSecret -}}
-{{- else -}}
 {{- printf "%s-secret" (include "backend.fullname" .) -}}
-{{- end -}}
 {{- end -}}
 
 {{- define "backend.configName" -}}
