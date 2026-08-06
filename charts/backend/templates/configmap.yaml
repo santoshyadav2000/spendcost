@@ -10,9 +10,9 @@ data:
   BCRYPT_SALT_ROUND: {{ .Values.config.bcryptSaltRound | quote }}
   BATCH_SIZE: {{ .Values.config.batchSize | quote }}
   MAX_DELETE: {{ .Values.config.maxDelete | quote }}
-  REDIRECT_URI: {{ include "backend.redirectUri" . | quote }}
   SMTP_SERVER: {{ .Values.config.smtp.server | quote }}
   SMTP_PORT: {{ .Values.config.smtp.port | quote }}
+  REDIRECT_URI: ""  # Hardcoded empty (not configurable via values.yaml)
   {{- range $k, $v := .Values.config.extraEnv }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}

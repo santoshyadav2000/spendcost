@@ -133,12 +133,6 @@ backend:
     bcryptSaltRound: 12
     batchSize: 100
     maxDelete: 500
-    # Google OAuth callback. AUTO-DERIVED from your ingress host when set:
-    #   https://<host>/api/auth/google/callback  (https when TLS is on, else http).
-    # Leave EMPTY in IP-only mode — Google does not accept a bare IP as a redirect
-    # URI, so Google login needs a real domain. Only set this by hand if you run
-    # Google login on a host that isn't your ingress host.
-    #redirectUri: ""
     smtp:
       server: "smtp.gmail.com"
       port: 587
@@ -148,25 +142,14 @@ backend:
 
   # Sensitive values -> stored in a Kubernetes Secret (never a ConfigMap).
   secrets:
-    existingSecret: ""               # use a pre-created Secret instead of the below
     # plain: enter normal text; Helm encodes it for Kubernetes Secret.data.
     # base64: enter values that are already Base64-encoded.
     encoding: "base64"
     secretKey: "Y2hhbmdlLW1lLWdlbmVyYXRlLWEtc3Ryb25nLXJhbmRvbS1rZXk="
-    #googleClientId: ""
-    #googleClientSecret: ""
     smtpUser: "MDgwM3NhbnRvc2h5YWRhdkBnbWFpbC5jb20="
     smtpPassword: "YnN6bXVlem51aXpnc2Jkdg=="
 
-  # Database schema migrations (runs `alembic upgrade heads` on install/upgrade).
-  migrations:
-    enabled: true
-    # PostgreSQL extensions ensured before migrations run (needed because some
-    # migrations use uuid_generate_v4()). Created with CREATE EXTENSION IF NOT
-    # EXISTS, so it is safe and idempotent. Set to [] to disable entirely.
-    extensions:
-      - uuid-ossp
-      - pgcrypto
+  
 
   # Optional disk for billing CSV files the workers write to disk.
   persistence:

@@ -41,9 +41,6 @@ config:
   bcryptSaltRound: 12
   batchSize: 100
   maxDelete: 500
-  # Google OAuth callback — AUTO-DERIVED from the ingress host when set
-  # (https://<host>/api/auth/google/callback). Empty = Google login off / IP mode.
-  redirectUri: ""
   smtp:
     server: "smtp.gmail.com"
     port: 587
@@ -55,31 +52,22 @@ config:
 # values.yaml). The backend helpers read the connection details from there.
 
 # --- Secrets ----------------------------------------------------------------
-# When existingSecret is set, all sensitive env is sourced from it (keys must
-# match the names used by the app). Otherwise a Secret is generated from the
-# values below. Select whether those values are plain text or already Base64.
+# Sensitive values stored in a Kubernetes Secret. Select whether values are
+# plain text (Helm encodes them) or already Base64-encoded.
 secrets:
-  existingSecret: ""
   # plain: Helm encodes values for Kubernetes Secret.data.
   # base64: values must already be valid Base64.
   encoding: "plain"
   secretKey: "change-me-please-generate-a-strong-key"
-  googleClientId: ""
-  googleClientSecret: ""
   smtpUser: ""
   smtpPassword: ""
 
-# --- Database migrations (Helm hook Job: alembic upgrade head) --------------
+# --- Database migrations (Helm hook Job: alembic upgrade heads) -------------
+# The migration Job and its PostgreSQL extensions are mandatory and hardcoded
+# in charts/backend/templates/migration-job.yaml — nothing to enable here.
 migrations:
-  enabled: true
-  # Waits for the DB TCP port before running.
+  # Waits for the DB TCP port before the migration/backend containers start.
   waitForDb: true
-  # PostgreSQL extensions ensured (CREATE EXTENSION IF NOT EXISTS) before the
-  # migrations run. Set to [] to disable — the step is then omitted and does
-  # not affect the migration logic.
-  extensions:
-    - uuid-ossp
-    - pgcrypto
 
 # --- Persistence (billing CSV assets written to src/jobs/assets) ------------
 persistence:
