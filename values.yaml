@@ -33,6 +33,10 @@ global:
     #   existingDatabase: true  -> use an EXISTING database. Put the FULL
     #        connection string in `url` below (host, port, user, password, db all
     #        live inside it) — no other connection fields are needed.
+    #        IMPORTANT: migrations always run after install/upgrade. For an
+    #        existing DB, uuid-ossp and pgcrypto must already be enabled, or the
+    #        DB user in DATABASE_URL must have permission to create them. Without
+    #        those extensions, migration fails and the backend schema is not ready.
     existingDatabase: false
 
     # Connection string for an EXISTING database (used only when

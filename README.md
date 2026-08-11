@@ -116,48 +116,19 @@ Set `urlEncoding: base64` only when the `url` value is already Base64-encoded.
 The rendered Kubernetes Secret always uses `data.DATABASE_URL`, so the final
 manifest contains Base64 either way.
 
-For production, do not commit the connection URL to Git. Create a Kubernetes
-Secret through your secret-management process and tell the backend to use it:
-
-```yaml
-global:
-  database:
-    existingDatabase: true
-
-backend:
-  secrets:
-    existingSecret: cloudcost-backend-secret
-```
-
-The pre-created Secret must be in `global.namespace.name` and must contain
-`DATABASE_URL` and the application secret values needed by the backend. A
-minimal example is:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: cloudcost-backend-secret
-  namespace: cloudcost-test
-type: Opaque
-stringData:
-  DATABASE_URL: "postgresql+asyncpg://cloudcost:encoded-password@postgres.example.internal:5432/cloudcost_db"
-  SECRET_KEY: "replace-with-a-long-random-value"
-  GOOGLE_CLIENT_ID: ""
-  GOOGLE_CLIENT_SECRET: ""
-  SMTP_USER: ""
-  SMTP_PASSWORD: ""
-```
+For production, do not commit the real connection URL to Git. Supply it from a
+secure Helm values source, CI/CD secret variable, or another protected release
+process. This chart currently renders the backend Secret itself; it does not
+currently support pointing `backend.secrets.existingSecret` at a pre-created
+Secret.
 
 When `existingDatabase: true`, the bundled PostgreSQL Secret, Service,
-StatefulSet, and PVC are not created. This logic is independent of
-`backend.secrets.existingSecret`.
+StatefulSet, and PVC are not created.
 
 ### Inline backend secret format
 
-When `backend.secrets.existingSecret` is empty, choose how inline secret values
-are supplied. Plain-text mode accepts normal values and Helm encodes them for
-Kubernetes:
+Choose how backend secret values are supplied. Plain-text mode accepts normal
+values and Helm encodes them for Kubernetes:
 
 ```yaml
 backend:
@@ -181,38 +152,55 @@ backend:
 ```
 
 Use exactly `plain` or `base64`; the chart does not guess the format. Empty
-optional values are allowed. This setting is ignored when `existingSecret` is
-set. Base64 is encoding, not encryption: use `existingSecret` with a proper
-secret manager when values must not be stored in a readable form in Git.
+optional values are allowed. Base64 is encoding, not encryption: use a protected
+values source or CI/CD secret process when values must not be stored in readable
+form in Git.
 
 When Helm manages the backend Secret, changes to inline secret values trigger a
 backend pod rollout automatically through a pod-template checksum annotation.
-If `backend.secrets.existingSecret` points to a Secret managed outside Helm,
-update or restart pods through your external secret-management process.
+
+Current limitation: Google OAuth values are rendered as empty values by the
+chart:
+
+```text
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+REDIRECT_URI=""
+```
+
+Because of this, Google login is not configurable from Helm values in the
+current chart.
 
 ## Database migrations
 
-The chart runs a post-install and post-upgrade Helm hook Job that applies:
+The chart always runs a post-install and post-upgrade Helm hook Job. This is
+required because the backend cannot run correctly without its database schema.
+The Job first ensures required PostgreSQL extensions exist, then applies:
 
 ```text
 alembic upgrade heads
 ```
 
-It also creates the configured PostgreSQL extensions with `IF NOT EXISTS`.
-Control this behavior with:
+The migration Job currently ensures these PostgreSQL extensions:
 
-```yaml
-backend:
-  migrations:
-    enabled: true
-    extensions:
-      - uuid-ossp
-      - pgcrypto
+```text
+uuid-ossp
+pgcrypto
 ```
 
-The database user must have permission to create these extensions. If a managed
-database does not allow that permission, have an administrator create the
-extensions first or set `extensions: []`.
+It runs `CREATE EXTENSION IF NOT EXISTS`, so the operation is idempotent:
+if an extension already exists, PostgreSQL keeps it; if it is missing, PostgreSQL
+creates it.
+
+For bundled PostgreSQL (`existingDatabase: false`), the chart deploys the
+database and the migration Job creates the extensions before running Alembic.
+
+For an existing PostgreSQL database (`existingDatabase: true`), the chart cannot
+know in advance whether the database already has these extensions. The database
+user in `DATABASE_URL` must either have permission to create them, or a database
+administrator must create them before installing/upgrading CloudCost. If the
+extensions are missing and the user does not have permission to create them, the
+migration Job fails and the backend schema is not upgraded.
 
 ## Storage
 
@@ -250,6 +238,23 @@ Ingress controller LoadBalancer
 Changing the frontend Service from port `8080` to port `80` does not create a
 new public IP and is not required for public access. The Ingress sends traffic
 to the configured internal Service port automatically.
+
+Both backend and frontend Services support optional Kubernetes Service
+annotations:
+
+```yaml
+backend:
+  service:
+    annotations: {}
+
+frontend:
+  service:
+    annotations: {}
+```
+
+The default `{}` adds nothing. Use these only when a Kubernetes platform,
+cloud-provider integration, monitoring system, or automation tool requires
+Service metadata.
 
 ### Access without a domain name
 
@@ -297,6 +302,23 @@ IngressClass and set `className` accordingly. Each controller can use its own
 LoadBalancer and public IP, or several applications can safely share one
 controller using different hostnames or non-conflicting paths.
 
+## Frontend runtime API URL
+
+The frontend image can be reused across environments. When
+`frontend.runtimeConfig.enabled` is `true`, an init container rewrites the
+frontend bundle at pod startup:
+
+```yaml
+frontend:
+  runtimeConfig:
+    enabled: true
+    apiBaseUrl: "/"
+    replaceFrom: "http://127.0.0.1:8000"
+```
+
+With the default `apiBaseUrl: "/"`, the browser calls the same public host that
+served the frontend, and the Ingress routes `/api/...` to the backend.
+
 ## Backend workload and scaling
 
 `backend.workload.kind` accepts `Deployment` or `StatefulSet`.
@@ -308,11 +330,25 @@ multiple replicas can run the same scheduled jobs more than once.
 
 The frontend is stateless and can be scaled horizontally.
 
+Autoscaling is optional for both backend and frontend. The chart supports CPU
+and memory utilization targets:
+
+```yaml
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+```
+
+Keep backend autoscaling disabled while background workers run inside the
+backend process. Frontend autoscaling is safer because the frontend is stateless.
+
 ## Production checklist
 
 - Replace `backend.secrets.secretKey` with a long random value encoded according
-  to `backend.secrets.encoding`, or provide `backend.secrets.existingSecret`
-  through a secret manager.
+  to `backend.secrets.encoding`.
 - Use immutable backend and frontend image tags or digests instead of `latest`.
 - Configure DNS, TLS, and an ingress controller appropriate for the cluster.
 - Use durable database storage and establish backup and restore procedures, or

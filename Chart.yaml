@@ -5,7 +5,7 @@ description: |
   Bundles the FastAPI backend, the React/nginx frontend, and a self-contained
   PostgreSQL database. Fully values-driven and offline/air-gap friendly.
 type: application
-version: 0.1.8
+version: 1.0.1
 appVersion: "1.0.0"
 keywords:
   - cloudcost
@@ -20,11 +20,11 @@ maintainers:
 # renders when global.database.existingDatabase is false (gated inside its templates).
 dependencies:
   - name: database
-    version: "0.1.8"
+    version: "1.0.1"
     repository: "file://charts/database"
   - name: backend
-    version: "0.1.8"
+    version: "1.0.1"
     repository: "file://charts/backend"
   - name: frontend
-    version: "0.1.8"
+    version: "1.0.1"
     repository: "file://charts/frontend"
