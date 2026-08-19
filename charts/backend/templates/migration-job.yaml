@@ -1,5 +1,22 @@
 {{/* Schema migrations are mandatory: the backend cannot run without its schema,
-     so this Job is always created and is not exposed in values.yaml. */}}
+     so this Job is always created and is not exposed in values.yaml.
+
+     Hook is post-install,post-upgrade (NOT pre-upgrade — that was tried and
+     reverted). pre-upgrade runs this Job before Helm applies ANY of the
+     upgrade's main resources, including the bundled Postgres StatefulSet
+     itself. That's fine on a steady-state upgrade (Postgres already exists
+     from the previous revision) but deadlocks the moment bundled Postgres is
+     being created for the first time as part of an upgrade (e.g. switching
+     global.database.existingDatabase from true to false): wait-for-db waits
+     for a Postgres pod that Helm hasn't created yet, because creating it is
+     one of the main resources that only happens AFTER the pre-upgrade hook
+     finishes. Real circular deadlock, no --wait flag needed to trigger it.
+
+     The backend's own wait-for-migrations init container (workload.yaml)
+     already fully closes the original race condition (backend's
+     create_all() vs this Job) on its own, on both first install and every
+     upgrade — so pre-upgrade here was redundant protection, not required,
+     and not worth the deadlock it introduced. */}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -12,7 +29,8 @@ metadata:
     "helm.sh/hook-weight": "0"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
-  backoffLimit: 3
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
   template:
     metadata:
       labels:
@@ -35,12 +53,20 @@ spec:
               until pg_isready -h {{ include "backend.dbHost" . }} -p {{ .Values.global.database.service.port }}; do
                 echo "waiting for db..."; sleep 3;
               done
+          {{- with .Values.migrations.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       {{- end }}
       containers:
         - name: alembic-upgrade
           image: {{ include "backend.image" . }}
           imagePullPolicy: {{ include "backend.pullPolicy" . }}
           workingDir: /app
+          {{- with .Values.migrations.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if not .Values.global.database.existingDatabase }}
           env:
             {{- include "backend.dbEnv" . | nindent 12 }}

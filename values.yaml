@@ -37,8 +37,7 @@ global:
     #        existing DB, uuid-ossp and pgcrypto must already be enabled, or the
     #        DB user in DATABASE_URL must have permission to create them. Without
     #        those extensions, migration fails and the backend schema is not ready.
-    existingDatabase: false
-
+    existingDatabase: true
     # Connection string for an EXISTING database (used only when
     # existingDatabase: true). URL-encode special chars in the password
     # ( @->%40  #->%23  $->%24  &->%26 ). Leave empty when existingDatabase: false.
@@ -47,7 +46,7 @@ global:
     #   base64 -> enter a DATABASE_URL that is already Base64-encoded.
     urlEncoding: "plain"
     # Example: "postgresql+asyncpg://user:pass@myhost:5432/cloudcost_db"
-    #url: ""
+    url: "postgresql+asyncpg://helm_test_user:TestPass123@103.153.58.49:5432/helm_test_db"
 
     # --- Settings for the PostgreSQL WE deploy (only when existingDatabase: false) ---
     image:
@@ -88,10 +87,19 @@ global:
         memory: 1Gi
     probes:
       enabled: true
-      initialDelaySeconds: 15
-      periodSeconds: 10
-      timeoutSeconds: 5
-      failureThreshold: 6
+      startupProbe:
+        periodSeconds: 10
+        failureThreshold: 30   # 10s x 30 = 300s — covers large WAL replay/crash recovery
+      readinessProbe:
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 6
+        successThreshold: 1
+      livenessProbe:
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 6
+        successThreshold: 1
     podSecurityContext:
       fsGroup: 999
     securityContext:
