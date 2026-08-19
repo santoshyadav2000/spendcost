@@ -60,18 +60,28 @@ spec:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
           {{- if .Values.probes.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startupProbe.failureThreshold }}
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
               port: http
-            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
-            periodSeconds: {{ .Values.probes.periodSeconds }}
+            periodSeconds: {{ .Values.probes.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.probes.readinessProbe.successThreshold }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
               port: http
-            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
-            periodSeconds: {{ .Values.probes.periodSeconds }}
+            periodSeconds: {{ .Values.probes.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.livenessProbe.failureThreshold }}
+            successThreshold: {{ .Values.probes.livenessProbe.successThreshold }}
           {{- end }}
           {{- with .Values.resources }}
           resources:

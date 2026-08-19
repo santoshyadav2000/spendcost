@@ -43,8 +43,11 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if and .Values.migrations.waitForDb (not .Values.global.database.existingDatabase) }}
+      {{- $hasWaitForDb := and .Values.migrations.waitForDb (not .Values.global.database.existingDatabase) }}
+      {{- $hasSchemaGate := .Values.migrations.gateBackendOnSchema }}
+      {{- if or $hasWaitForDb $hasSchemaGate }}
       initContainers:
+        {{- if $hasWaitForDb }}
         - name: wait-for-db
           image: {{ include "backend.image" . }}
           imagePullPolicy: {{ include "backend.pullPolicy" . }}
@@ -57,6 +60,68 @@ spec:
                 sleep 3
               done
               echo "Database is ready."
+        {{- end }}
+        {{- if $hasSchemaGate }}
+        - name: wait-for-migrations
+          {{/* Blocks the real "backend" container from starting until the
+               schema is at the migration Job's target revision(s). Closes
+               the race where this pod's own startup (init_db -> create_all)
+               could otherwise run before/alongside the migration Job and
+               collide with it (DuplicateTableError), on first install and
+               on any upgrade alike. Read-only: never writes to the schema
+               itself, only checks it. */}}
+          image: {{ include "backend.image" . }}
+          imagePullPolicy: {{ include "backend.pullPolicy" . }}
+          workingDir: /app
+          {{- if not .Values.global.database.existingDatabase }}
+          env:
+            {{- include "backend.dbEnv" . | nindent 12 }}
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "backend.configName" . }}
+            - secretRef:
+                name: {{ include "backend.secretName" . }}
+          command:
+            - python
+            - -c
+            - |
+              import os
+              import sys
+              import time
+
+              from alembic.config import Config
+              from alembic.script import ScriptDirectory
+              from alembic.runtime.migration import MigrationContext
+              from sqlalchemy import create_engine
+
+              cfg = Config("alembic.ini")
+              target_heads = set(ScriptDirectory.from_config(cfg).get_heads())
+              sync_url = os.environ["DATABASE_URL"].replace("+asyncpg", "+psycopg2")
+
+              max_attempts = {{ .Values.migrations.schemaWaitAttempts | default 100 }}
+              interval_seconds = 5
+
+              for attempt in range(1, max_attempts + 1):
+                  try:
+                      engine = create_engine(sync_url)
+                      with engine.connect() as conn:
+                          current_heads = set(MigrationContext.configure(conn).get_current_heads())
+                      engine.dispose()
+                      if current_heads == target_heads:
+                          print(f"Schema is at target revision(s) {sorted(target_heads)}. Continuing.")
+                          sys.exit(0)
+                      print(
+                          f"[{attempt}/{max_attempts}] schema not ready yet "
+                          f"(have {sorted(current_heads) or 'none'}, want {sorted(target_heads)}); waiting..."
+                      )
+                  except Exception as exc:
+                      print(f"[{attempt}/{max_attempts}] database not reachable yet: {exc}")
+                  time.sleep(interval_seconds)
+
+              print("Timed out waiting for the migration Job to finish.", file=sys.stderr)
+              sys.exit(1)
+        {{- end }}
       {{- end }}
       containers:
         - name: backend
@@ -85,18 +150,28 @@ spec:
             - secretRef:
                 name: {{ include "backend.secretName" . }}
           {{- if .Values.probes.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startupProbe.failureThreshold }}
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
               port: http
-            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
-            periodSeconds: {{ .Values.probes.periodSeconds }}
+            periodSeconds: {{ .Values.probes.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.probes.readinessProbe.successThreshold }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
               port: http
-            initialDelaySeconds: {{ add .Values.probes.initialDelaySeconds 10 }}
-            periodSeconds: {{ .Values.probes.periodSeconds }}
+            periodSeconds: {{ .Values.probes.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.livenessProbe.failureThreshold }}
+            successThreshold: {{ .Values.probes.livenessProbe.successThreshold }}
           {{- end }}
           {{- with .Values.resources }}
           resources:

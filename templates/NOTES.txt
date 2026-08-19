@@ -134,6 +134,13 @@
    Linux/Mac:
    kubectl get secret {{ .Release.Name }}-postgres-auth -n {{ .Values.global.namespace.name }} -o jsonpath='{.data.POSTGRES_USER}' | base64 -d
    kubectl get secret {{ .Release.Name }}-postgres-auth -n {{ .Values.global.namespace.name }} -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d
+
+🧹 Full Cleanup (helm uninstall does NOT remove this):
+   This Secret is protected (helm.sh/resource-policy: keep) so the database
+   password can never go out of sync with the data on disk. "helm uninstall"
+   will print a message saying this Secret was kept — that is expected, not
+   an error. To also remove it and get a completely clean wipe:
+   kubectl delete secret {{ .Release.Name }}-postgres-auth -n {{ .Values.global.namespace.name }}
 {{- end }}
 
 🔑 Backend Application Secrets:

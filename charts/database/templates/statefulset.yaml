@@ -57,20 +57,25 @@ spec:
             - name: PGDATA
               value: {{ printf "%s/%s" $db.persistence.mountPath $db.persistence.subPath | quote }}
           {{- if $db.probes.enabled }}
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
+            periodSeconds: {{ $db.probes.startupProbe.periodSeconds }}
+            failureThreshold: {{ $db.probes.startupProbe.failureThreshold }}
           readinessProbe:
             exec:
               command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
-            initialDelaySeconds: {{ $db.probes.initialDelaySeconds }}
-            periodSeconds: {{ $db.probes.periodSeconds }}
-            timeoutSeconds: {{ $db.probes.timeoutSeconds }}
-            failureThreshold: {{ $db.probes.failureThreshold }}
+            periodSeconds: {{ $db.probes.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ $db.probes.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ $db.probes.readinessProbe.failureThreshold }}
+            successThreshold: {{ $db.probes.readinessProbe.successThreshold }}
           livenessProbe:
             exec:
               command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -h 127.0.0.1"]
-            initialDelaySeconds: {{ add $db.probes.initialDelaySeconds 15 }}
-            periodSeconds: {{ $db.probes.periodSeconds }}
-            timeoutSeconds: {{ $db.probes.timeoutSeconds }}
-            failureThreshold: {{ $db.probes.failureThreshold }}
+            periodSeconds: {{ $db.probes.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ $db.probes.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ $db.probes.livenessProbe.failureThreshold }}
+            successThreshold: {{ $db.probes.livenessProbe.successThreshold }}
           {{- end }}
           {{- with $db.resources }}
           resources:

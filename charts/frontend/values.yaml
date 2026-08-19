@@ -72,8 +72,19 @@ resources:
 probes:
   enabled: true
   path: /
-  initialDelaySeconds: 5
-  periodSeconds: 10
+  startupProbe:
+    periodSeconds: 5
+    failureThreshold: 6        # 5s x 6 = 30s — nginx starts almost instantly
+  readinessProbe:
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    periodSeconds: 10
+    timeoutSeconds: 5          # was implicitly 1s — too tight
+    failureThreshold: 3
+    successThreshold: 1
 
 podAnnotations: {}
 podSecurityContext: {}

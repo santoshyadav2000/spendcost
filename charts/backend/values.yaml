@@ -68,6 +68,45 @@ secrets:
 migrations:
   # Waits for the DB TCP port before the migration/backend containers start.
   waitForDb: true
+  # Job retries on failure. A bad DATABASE_URL, wrong credentials, or a
+  # missing database/role/extension is a config error and won't be fixed by
+  # retrying — this small buffer is only to absorb rare transient infra
+  # blips (e.g. a brief network hiccup to an external DB, which has no
+  # wait-for-db init container to protect it).
+  backoffLimit: 2
+  # Hard wall-clock cap on the whole Job (covers wait-for-db + the migration
+  # itself), independent of backoffLimit. Without this, a Postgres that never
+  # becomes ready (crash-looping, bad image, stuck PVC) makes the wait-for-db
+  # init container loop forever — the Job never fails on its own, and
+  # `helm upgrade --install` (which has no --timeout by default) hangs
+  # indefinitely instead of reporting an error. Raise this if legitimate
+  # cold-start times (e.g. large PVC provisioning) exceed the default.
+  activeDeadlineSeconds: 3600
+  # Adds a wait-for-migrations init container to the backend pod: it blocks
+  # the real backend container from starting until the database schema is
+  # confirmed at the migration Job's target revision(s). Without this, the
+  # backend's own startup code (which also creates any tables it doesn't
+  # find) can start at the same time as the migration Job and collide with
+  # it. Applies on every deploy, including the very first install (the one
+  # case the migration Job's own pre-upgrade hook timing can't cover).
+  gateBackendOnSchema: true
+  # Max poll attempts for wait-for-migrations, 5s apart (default: ~8 minutes)
+  # before it gives up and fails the backend pod's startup with a clear error.
+  schemaWaitAttempts: 100
+  # Resource requests/limits for the migration Job's containers (wait-for-db +
+  # alembic-upgrade). Without this, the Job runs as BestEffort QoS — the
+  # first thing evicted if the node comes under memory pressure for any
+  # reason, even one unrelated to this Job. The Job only ever runs DDL
+  # (CREATE/ALTER TABLE) through a single connection for under a minute, so
+  # this is comfortably above its realistic footprint without copying the
+  # much heavier steady-state backend container's own limits.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 # --- Persistence (billing CSV assets written to src/jobs/assets) ------------
 persistence:
@@ -121,8 +160,22 @@ resources:
 probes:
   enabled: true
   path: /
-  initialDelaySeconds: 20
-  periodSeconds: 15
+  # Gates readiness/liveness until the app has started successfully once.
+  # Separate from (and after) the wait-for-migrations init container — this
+  # covers the FastAPI app's own boot time (routes, background workers).
+  startupProbe:
+    periodSeconds: 5
+    failureThreshold: 30       # 5s x 30 = 150s startup budget
+  readinessProbe:
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    periodSeconds: 15
+    timeoutSeconds: 5          # was implicitly 1s — too tight, caused false-positive restarts
+    failureThreshold: 3
+    successThreshold: 1
 
 serviceAccount:
   create: true

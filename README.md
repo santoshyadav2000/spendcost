@@ -47,6 +47,14 @@ helm upgrade --install cloudcost . \
   --set frontend.image.tag=1.2.3
 ```
 
+**Do not add `--wait` to `helm install`/`helm upgrade` for this chart.** The
+backend pod has a `wait-for-migrations` init container that blocks it from
+becoming Ready until the migration Job has finished. `--wait` makes Helm wait
+for the backend to become Ready before it runs that same migration Job (a
+post-install/pre-upgrade hook) — each side is waiting on the other, so the
+command hangs indefinitely instead of completing. The commands documented in
+this README never use `--wait`, for exactly this reason.
+
 ## Database configuration
 
 The chart supports two database modes through `global.database`.
@@ -91,9 +99,37 @@ kubectl -n cloudcost-test get secret cloudcost-postgres-auth \
 echo
 ```
 
-Back up this Secret together with the database. If the release is uninstalled
-but its PVC is retained, a later fresh installation can generate a different
-password while the retained database still expects the old one.
+This Secret is marked `helm.sh/resource-policy: keep`, so `helm uninstall`
+never deletes it — only the application resources (backend, frontend, the
+Postgres StatefulSet) are removed. `helm uninstall` prints a message
+confirming this:
+
+```text
+These resources were kept due to the resource policy:
+[Secret] cloudcost-postgres-auth
+```
+
+This is intentional: it guarantees the saved password always matches
+whatever the bundled Postgres data actually expects, even across mode
+switches (`existingDatabase: true` back to `false`) or an uninstall/reinstall
+cycle. Do not delete this Secret manually while its matching PVC still has
+data on it — that reintroduces the exact password mismatch this policy
+prevents.
+
+To fully wipe a test environment — removing the saved password along with
+everything else, with nothing left over — delete it explicitly after
+uninstalling:
+
+```sh
+helm uninstall cloudcost -n default
+kubectl delete secret cloudcost-postgres-auth -n cloudcost-test
+```
+
+(The PVC does not need a separate delete command here: with the default
+chart configuration the application namespace itself is deleted by
+`helm uninstall`, and deleting a namespace removes everything inside it,
+PVCs included — the Secret is the only thing that survives that cascade,
+because of its `keep` policy.)
 
 ### Existing PostgreSQL database
 
