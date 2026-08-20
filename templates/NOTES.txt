@@ -146,6 +146,21 @@
 🔑 Backend Application Secrets:
    kubectl get secret {{ .Release.Name }}-backend-secret -n {{ .Values.global.namespace.name }} -o yaml
 
+{{- if not .Values.backend.secrets.secretKey }}
+
+🔐 JWT Signing Key (secretKey):
+   backend.secrets.secretKey was left empty, so a random 64-character key
+   was auto-generated and will be reused on every future upgrade (same
+   pattern as the Postgres password). View it:
+
+   Windows PowerShell:
+   $encoded = kubectl get secret {{ .Release.Name }}-backend-secret -n {{ .Values.global.namespace.name }} -o jsonpath="{.data.SECRET_KEY}"
+   [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded))
+
+   Linux/Mac:
+   kubectl get secret {{ .Release.Name }}-backend-secret -n {{ .Values.global.namespace.name }} -o jsonpath='{.data.SECRET_KEY}' | base64 -d; echo
+{{- end }}
+
 ================================================================================
 📚 NEXT STEPS
 ================================================================================
