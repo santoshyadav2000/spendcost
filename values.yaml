@@ -168,8 +168,8 @@ backend:
     # install (persisted across upgrades). Only set this yourself if you
     # need a specific value.
     secretKey: ""
-    #smtpUser: "MDgwM3NhbnRvc2h5YWRhdkBnbWFpbC5jb20="
-    #smtpPassword: "YnN6bXVlem51aXpnc2Jkdg=="
+    smtpUser: "MDgwM3NhbnRvc2h5YWRhdkBnbWFpbC5jb20="
+    smtpPassword: "YnN6bXVlem51aXpnc2Jkdg=="
 
   
 

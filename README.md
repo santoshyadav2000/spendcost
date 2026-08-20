@@ -483,8 +483,9 @@ backend process. Frontend autoscaling is safer because the frontend is stateless
 
 ## Production checklist
 
-- Replace `backend.secrets.secretKey` with a long random value encoded according
-  to `backend.secrets.encoding`.
+- Leave `backend.secrets.secretKey` empty (the default) so it auto-generates —
+  do not set a manual value unless multiple separate deployments need to share
+  one signing key. See [`secretKey` — auto-generated if left empty](#secretkey--auto-generated-if-left-empty).
 - Use immutable backend and frontend image tags or digests instead of `latest`.
 - Configure DNS, TLS, and an ingress controller appropriate for the cluster.
 - Use durable database storage and establish backup and restore procedures, or
