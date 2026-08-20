@@ -2,6 +2,14 @@
 
 Helm chart for installing the CloudCost platform on Kubernetes.
 
+> ⚠️ **SMTP configuration is mandatory.** If `backend.secrets.smtpUser` and
+> `backend.secrets.smtpPassword` in `values.yaml` are not set to real, working
+> SMTP credentials, **users cannot log in to the application at all.** The app
+> sends OTP / verification emails as part of login, so a missing or invalid
+> SMTP configuration blocks login entirely, not just email delivery. Set these
+> values before installing — see
+> [Inline backend secret format](#inline-backend-secret-format) below.
+
 | Component | Workload | Internal Service port | Purpose |
 |---|---|---:|---|
 | FastAPI backend | Deployment or StatefulSet | 8000 | API and background workers |
@@ -49,11 +57,15 @@ helm upgrade --install cloudcost . \
 
 **Do not add `--wait` to `helm install`/`helm upgrade` for this chart.** The
 backend pod has a `wait-for-migrations` init container that blocks it from
-becoming Ready until the migration Job has finished. `--wait` makes Helm wait
-for the backend to become Ready before it runs that same migration Job (a
-post-install/pre-upgrade hook) — each side is waiting on the other, so the
-command hangs indefinitely instead of completing. The commands documented in
-this README never use `--wait`, for exactly this reason.
+becoming Ready until the migration Job (a post-install/post-upgrade hook) has
+finished. `--wait` makes Helm wait for the backend to become Ready before it
+runs post-install/post-upgrade hooks — each side ends up waiting on the
+other, so the command hangs indefinitely instead of completing. The commands
+documented in this README never use `--wait`, for exactly this reason. If you
+need a script/CI step to confirm the deploy is actually healthy, run
+`helm upgrade --install` without `--wait`, then separately run
+`kubectl rollout status deployment/cloudcost-backend -n cloudcost-test` —
+that achieves the same goal without triggering this deadlock.
 
 ## Database configuration
 
@@ -161,6 +173,24 @@ Secret.
 When `existingDatabase: true`, the bundled PostgreSQL Secret, Service,
 StatefulSet, and PVC are not created.
 
+`url` is validated before anything is created — a missing or malformed value
+fails `helm install`/`helm upgrade` immediately, with nothing deployed:
+
+- **Missing entirely** — whether left as `url: ""` or fully commented out
+  (`#url: ...`), both are caught the same way: `global.database.url must be
+  set when global.database.existingDatabase is true`.
+- **Present but malformed** (`urlEncoding: plain` only — a Base64 value can't
+  be shape-checked before decoding) — each required piece of
+  `postgresql+asyncpg://user:password@host:port/dbname` is checked
+  individually, so the error names the exact missing piece, for example:
+  `global.database.url is missing the password — expected user:password
+  before the @ symbol`, or `global.database.url has an invalid port "abcd" —
+  must be numeric`.
+
+This only checks the URL's *shape*. It cannot verify the host is reachable,
+the password is correct, or the database actually exists — those are only
+discovered when the migration Job attempts to connect.
+
 ### Inline backend secret format
 
 Choose how backend secret values are supplied. Plain-text mode accepts normal
@@ -194,6 +224,39 @@ form in Git.
 
 When Helm manages the backend Secret, changes to inline secret values trigger a
 backend pod rollout automatically through a pod-template checksum annotation.
+
+#### `secretKey` — auto-generated if left empty
+
+`secretKey` signs every login session token (JWT). Unlike `smtpUser`/
+`smtpPassword`, it has no hard `fail` check if left empty — leaving it empty
+is the recommended default, not an error condition:
+
+```yaml
+backend:
+  secrets:
+    secretKey: ""   # recommended: leave empty
+```
+
+When empty, the chart generates a random 64-character key on first install
+and persists it across every future upgrade — the same `lookup`-based
+pattern already used for the bundled Postgres password
+([Bundled PostgreSQL](#bundled-postgresql) above). This matches the pattern
+used by Bitnami, GitLab, and OpenObserve for this same class of value, and
+avoids shipping a guessable static default (a real risk: `secretKey` is a
+signing key — anyone who knows its value can forge a valid login token for
+any user, without a password, while the application otherwise looks and
+behaves completely normally).
+
+View the generated value the same way as the Postgres password:
+
+```powershell
+$encoded = kubectl get secret cloudcost-backend-secret -n cloudcost-test -o jsonpath="{.data.SECRET_KEY}"
+[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded))
+```
+
+Only set `secretKey` explicitly if you need a specific value — for example,
+sharing one signing key across multiple separate deployments so tokens
+issued by one are accepted by another.
 
 Current limitation: Google OAuth values are rendered as empty values by the
 chart:
@@ -237,6 +300,43 @@ user in `DATABASE_URL` must either have permission to create them, or a database
 administrator must create them before installing/upgrading CloudCost. If the
 extensions are missing and the user does not have permission to create them, the
 migration Job fails and the backend schema is not upgraded.
+
+### Migration Job reliability
+
+```yaml
+backend:
+  migrations:
+    waitForDb: true
+    backoffLimit: 2
+    activeDeadlineSeconds: 3600
+    gateBackendOnSchema: true
+    schemaWaitAttempts: 100
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+```
+
+- `backoffLimit` — how many times the migration Job retries after a failure.
+  A bad `DATABASE_URL`, wrong credentials, or a missing extension is a config
+  error that a retry cannot fix; this only exists to absorb rare transient
+  infra issues. `0` disables retries entirely.
+- `activeDeadlineSeconds` — hard wall-clock cap on the whole Job, independent
+  of `backoffLimit`. Without this, a database that never becomes reachable
+  makes the Job hang indefinitely instead of failing with a clear error.
+- `gateBackendOnSchema` — adds a `wait-for-migrations` init container to the
+  backend pod. It blocks the real backend container from starting until the
+  database schema is confirmed at the migration Job's target revision. This
+  prevents a race between this Job and the backend's own startup code (which
+  also creates any tables it doesn't find) — without it, both can try to
+  create the same table at nearly the same time and collide. Applies on
+  every deploy, including the first install.
+- `schemaWaitAttempts` — how many times `wait-for-migrations` polls (5
+  seconds apart) before giving up and failing the backend pod's startup with
+  a clear error, instead of waiting forever.
+- `resources` — CPU/memory requests and limits for the migration Job's
+  containers. Without this the Job runs as BestEffort QoS, the first
+  candidate for eviction if the node comes under memory pressure for any
+  unrelated reason.
 
 ## Storage
 
@@ -383,8 +483,9 @@ backend process. Frontend autoscaling is safer because the frontend is stateless
 
 ## Production checklist
 
-- Replace `backend.secrets.secretKey` with a long random value encoded according
-  to `backend.secrets.encoding`.
+- Leave `backend.secrets.secretKey` empty (the default) so it auto-generates —
+  do not set a manual value unless multiple separate deployments need to share
+  one signing key. See [`secretKey` — auto-generated if left empty](#secretkey--auto-generated-if-left-empty).
 - Use immutable backend and frontend image tags or digests instead of `latest`.
 - Configure DNS, TLS, and an ingress controller appropriate for the cluster.
 - Use durable database storage and establish backup and restore procedures, or

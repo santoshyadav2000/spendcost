@@ -58,7 +58,11 @@ secrets:
   # plain: Helm encodes values for Kubernetes Secret.data.
   # base64: values must already be valid Base64.
   encoding: "plain"
-  secretKey: "change-me-please-generate-a-strong-key"
+  # Leave empty to auto-generate a random 64-character key on first install
+  # (persisted across upgrades — same pattern as the bundled Postgres
+  # password). Only set this yourself if you need a specific value, e.g. to
+  # share one signing key across multiple deployments.
+  secretKey: ""
   smtpUser: ""
   smtpPassword: ""
 

@@ -14,6 +14,13 @@
 # Override a single value at install time without editing the file:
 #   helm upgrade --install cloudcost . --set backend.image.tag=v1.2.3
 # ############################################################################
+#
+# !!! SMTP CONFIGURATION IS MANDATORY !!!
+# backend.secrets.smtpUser and backend.secrets.smtpPassword (below, under
+# section 2. BACKEND) MUST be set to real, working SMTP credentials. The app
+# sends OTP / verification emails as part of login — if SMTP is missing or
+# invalid, users CANNOT LOG IN AT ALL, not just "no email is sent."
+# ############################################################################
 
 
 # ============================================================================
@@ -157,7 +164,10 @@ backend:
     # plain: enter normal text; Helm encodes it for Kubernetes Secret.data.
     # base64: enter values that are already Base64-encoded.
     encoding: "base64"
-    secretKey: "Y2hhbmdlLW1lLWdlbmVyYXRlLWEtc3Ryb25nLXJhbmRvbS1rZXk="
+    # Leave empty to auto-generate a random 64-character key on first
+    # install (persisted across upgrades). Only set this yourself if you
+    # need a specific value.
+    secretKey: ""
     smtpUser: "MDgwM3NhbnRvc2h5YWRhdkBnbWFpbC5jb20="
     smtpPassword: "YnN6bXVlem51aXpnc2Jkdg=="
 

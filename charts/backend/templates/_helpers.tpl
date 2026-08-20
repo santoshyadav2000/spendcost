@@ -52,9 +52,14 @@
 {{- printf "%s-postgres.%s.svc.cluster.local" .Release.Name (include "backend.namespace" .) -}}
 {{- end -}}
 
-{{/* DATABASE_URL for EXTERNAL mode only — the full connection string from values */}}
+{{/* DATABASE_URL for EXTERNAL mode only — the full connection string from values.
+     `default ""` normalizes a fully-commented-out/missing `url:` key to an
+     empty string here, before it ever gets printed — without this, printing
+     a genuinely missing value produces the literal text "<no value>", which
+     is a non-empty string that silently passes the "must be set" check
+     further down (secret.yaml), instead of being caught by it. */}}
 {{- define "backend.databaseUrl" -}}
-{{- .Values.global.database.url -}}
+{{- .Values.global.database.url | default "" -}}
 {{- end -}}
 
 {{/* Name of the Secret the database subchart creates (deploy mode) */}}
