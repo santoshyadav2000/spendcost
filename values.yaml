@@ -48,10 +48,9 @@ global:
     # Connection string for an EXISTING database (used only when
     # existingDatabase: true). URL-encode special chars in the password
     # ( @->%40  #->%23  $->%24  &->%26 ). Leave empty when existingDatabase: false.
-    # urlEncoding:
-    #   plain  -> enter a normal DATABASE_URL; Helm encodes it for Kubernetes Secret.data.
-    #   base64 -> enter a DATABASE_URL that is already Base64-encoded.
-    urlEncoding: "plain"
+    # plain  -> enter a normal DATABASE_URL; Helm encodes it for Kubernetes Secret.data.
+    # base64 -> enter a DATABASE_URL that is already Base64-encoded.
+    urlEncoding: "plain"        # plain | base64
     # Example: "postgresql+asyncpg://user:pass@myhost:5432/cloudcost_db"
     url: "postgresql+asyncpg://helm_test_user:TestPass123@103.153.58.49:5432/helm_test_db"
 
@@ -163,13 +162,21 @@ backend:
   secrets:
     # plain: enter normal text; Helm encodes it for Kubernetes Secret.data.
     # base64: enter values that are already Base64-encoded.
-    encoding: "base64"
-    # Leave empty to auto-generate a random 64-character key on first
-    # install (persisted across upgrades). Only set this yourself if you
-    # need a specific value.
+    encoding: "base64"          # base64 | plain
+    # Secret key used to sign login sessions — treat it like a password.
+    # Leave empty: Helm auto-generates a strong random key on first install
+    # and reuses that same value on every future upgrade (safe, recommended).
+    # Only set this yourself if multiple separate deployments must share one
+    # signing key (e.g. so a session from one install is valid on another).
     secretKey: ""
+    # Which channel sends login/OTP/verification emails.
+    smtpProvider: "smtp"        # smtp | sendgrid
+    # Used only when smtpProvider: "smtp".
     smtpUser: "MDgwM3NhbnRvc2h5YWRhdkBnbWFpbC5jb20="
     smtpPassword: "YnN6bXVlem51aXpnc2Jkdg=="
+    # Used only when smtpProvider: "sendgrid".
+    sendgridApiKey: ""
+    sendgridFromEmail: ""
 
   
 
@@ -232,6 +239,11 @@ backend:
     maxReplicas: 3
     targetCPUUtilizationPercentage: 80
     targetMemoryUtilizationPercentage: 80   # scale when avg memory > 80%
+
+  # Empty by default — set your own if you need pod/container security
+  # hardening (e.g. runAsNonRoot, readOnlyRootFilesystem, fsGroup).
+  podSecurityContext: {}
+  securityContext: {}
 
 
 # ============================================================================
@@ -315,3 +327,8 @@ frontend:
     maxReplicas: 5
     targetCPUUtilizationPercentage: 80
     targetMemoryUtilizationPercentage: 80  # scale when avg memory > 80%
+
+  # Empty by default — set your own if you need pod/container security
+  # hardening (e.g. runAsNonRoot, readOnlyRootFilesystem, fsGroup).
+  podSecurityContext: {}
+  securityContext: {}
