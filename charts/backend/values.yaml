@@ -63,8 +63,14 @@ secrets:
   # password). Only set this yourself if you need a specific value, e.g. to
   # share one signing key across multiple deployments.
   secretKey: ""
+  # Which channel sends login/OTP/verification emails: "smtp" or "sendgrid".
+  # Only the fields for the selected provider are required below.
+  smtpProvider: "smtp"
   smtpUser: ""
   smtpPassword: ""
+  # Used only when smtpProvider: "sendgrid".
+  sendgridApiKey: ""
+  sendgridFromEmail: ""
 
 # --- Database migrations (Helm hook Job: alembic upgrade heads) -------------
 # The migration Job and its PostgreSQL extensions are mandatory and hardcoded
