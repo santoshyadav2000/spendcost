@@ -15,11 +15,13 @@
 #   helm upgrade --install cloudcost . --set backend.image.tag=v1.2.3
 # ############################################################################
 #
-# !!! SMTP CONFIGURATION IS MANDATORY !!!
-# backend.secrets.smtpUser and backend.secrets.smtpPassword (below, under
-# section 2. BACKEND) MUST be set to real, working SMTP credentials. The app
-# sends OTP / verification emails as part of login — if SMTP is missing or
-# invalid, users CANNOT LOG IN AT ALL, not just "no email is sent."
+# !!! LOGIN EMAIL CONFIGURATION IS MANDATORY !!!
+# The app sends OTP / verification emails as part of login — if this is
+# missing or invalid, users CANNOT LOG IN AT ALL, not just "no email is
+# sent." backend.secrets.smtpProvider (below, under section 2. BACKEND)
+# selects which credentials are required:
+#   smtpProvider: "smtp"     (default) -> smtpUser and smtpPassword
+#   smtpProvider: "sendgrid"           -> sendgridApiKey and sendgridFromEmail
 # ############################################################################
 
 
@@ -119,9 +121,6 @@ global:
 # 2. BACKEND  — FastAPI API + background workers
 # ============================================================================
 backend:
-  # Where the backend image is pulled from.
-  #   registry: ""  -> image is already on the node (offline / docker load)
-  #   registry: "docker.io/santosh1031" / "myregistry.azurecr.io" -> pull from there
   image:
     registry: docker.io/santosh1031
     repository: cloudcost-backend
@@ -134,6 +133,7 @@ backend:
   workload:
     kind: Deployment         # Deployment or StatefulSet
     replicaCount: 1
+    revisionHistoryLimit: 5  # old ReplicaSets kept for rollback
 
   # Service port the API listens on (internal). Rarely changed.
   service:
@@ -141,6 +141,7 @@ backend:
     type: ClusterIP
     port: 8000               # Service port
     targetPort: 8000         # container port the app listens on
+    portName: "http"          # name given to the container/Service port; probes reference it by name
 
   # NOTE: all database connection settings (in-cluster or external) live in
   # ONE place: global.database (section 1). The backend reads from there.
@@ -151,8 +152,10 @@ backend:
     bcryptSaltRound: 12
     batchSize: 100
     maxDelete: 500
+    # Only used when backend.secrets.smtpProvider is "smtp" (see secrets:
+    # below). Ignored entirely when smtpProvider is "sendgrid".
     smtp:
-      server: "smtp.gmail.com"
+      server: "smtp.gmail.com"    # e.g. smtp.gmail.com | smtp.office365.com
       port: 587
     # Optional worker tuning (leave empty to use built-in defaults).
     # Example: { BILLING_LOAD_WORKERS: "4", AMORTIZED_LOAD_WORKERS: "4" }
@@ -178,15 +181,17 @@ backend:
     sendgridApiKey: ""
     sendgridFromEmail: ""
 
-  
-
   # Optional disk for billing CSV files the workers write to disk.
   persistence:
     enabled: false
-    type: pvc                # pvc | azureFile | azureBlob | local | emptyDir
+    type: pvc                # pvc | azureDisk | azureFile | azureBlob | local | emptyDir
     size: 5Gi
     accessMode: ReadWriteOnce
     storageClass: ""
+    mountPath: /app/src/jobs/assets        # path inside the container the volume mounts to
+    annotations: {}                        # optional PVC annotations
+    hostPath: /mnt/data/cloudcost-assets   # used only when type: local
+    existingClaim: ""                      # mount a pre-created PVC instead of provisioning one
 
   # ── Public API URL (Ingress) ──────────────────────────────────────────────
   # Exposes the backend API to the internet. NOTE: your cluster must already
@@ -221,6 +226,26 @@ backend:
       cpu: "1"
       memory: 1Gi
 
+  probes:
+    enabled: true
+    path: /
+    # Gates readiness/liveness until the app has started successfully once.
+    # Separate from (and after) the wait-for-migrations init container — this
+    # covers the FastAPI app's own boot time (routes, background workers).
+    startupProbe:
+      periodSeconds: 5
+      failureThreshold: 30       # 5s x 30 = 150s startup budget
+    readinessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    livenessProbe:
+      periodSeconds: 15
+      timeoutSeconds: 5          # was implicitly 1s — too tight, caused false-positive restarts
+      failureThreshold: 3
+      successThreshold: 1
+
   # PodDisruptionBudget — keep DISABLED for the backend.
   # The backend runs 1 replica (in-process background workers). A PDB on a
   # 1-replica app would BLOCK node drains during cluster maintenance, so do
@@ -250,9 +275,6 @@ backend:
 # 3. FRONTEND  — React app served by nginx
 # ============================================================================
 frontend:
-  # Where the frontend image is pulled from.
-  #   registry: ""  -> image is already on the node (offline / docker load)
-  #   registry: "docker.io/santosh1031" / "myregistry.azurecr.io" -> pull from there
   image:
     registry: docker.io/santosh1031
     repository: cloudcost-ui           # your built UI image
@@ -261,6 +283,7 @@ frontend:
     pullSecrets: []          # e.g. [ { name: acr-pull-secret } ] for a private registry
 
   replicaCount: 1
+  revisionHistoryLimit: 5  # old ReplicaSets kept for rollback
 
   # Internal frontend Service. Ingress sends public traffic to port 8080 here;
   # the Service forwards it to nginx inside the container on port 80.
@@ -269,6 +292,7 @@ frontend:
     type: ClusterIP
     port: 8080                 # Kubernetes Service port, used by Ingress inside the cluster
     targetPort: 80             # container port where nginx listens inside the frontend pod
+    portName: "http"            # name given to the container/Service port; probes reference it by name
 
   # The frontend calls the backend at this URL. It is injected at startup, so
   # you do NOT need to rebuild the image to point at a different backend.
@@ -309,6 +333,23 @@ frontend:
     limits:
       cpu: 250m
       memory: 900Mi
+
+  probes:
+    enabled: true
+    path: /
+    startupProbe:
+      periodSeconds: 5
+      failureThreshold: 6        # 5s x 6 = 30s — nginx starts almost instantly
+    readinessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    livenessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5          # was implicitly 1s — too tight
+      failureThreshold: 3
+      successThreshold: 1
 
   # PodDisruptionBudget — default OFF.
   # Turn ON only when the frontend runs 3+ replicas AND you want zero-downtime

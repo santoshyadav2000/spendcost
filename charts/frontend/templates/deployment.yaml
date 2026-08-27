@@ -9,6 +9,7 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   selector:
     matchLabels:
       {{- include "frontend.selectorLabels" . | nindent 6 }}
@@ -57,19 +58,19 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           ports:
-            - name: http
+            - name: {{ .Values.service.portName | default "http" }}
               containerPort: {{ .Values.service.targetPort }}
           {{- if .Values.probes.enabled }}
           startupProbe:
             httpGet:
               path: {{ .Values.probes.path }}
-              port: http
+              port: {{ .Values.service.portName | default "http" }}
             periodSeconds: {{ .Values.probes.startupProbe.periodSeconds }}
             failureThreshold: {{ .Values.probes.startupProbe.failureThreshold }}
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
-              port: http
+              port: {{ .Values.service.portName | default "http" }}
             periodSeconds: {{ .Values.probes.readinessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readinessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.readinessProbe.failureThreshold }}
@@ -77,7 +78,7 @@ spec:
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
-              port: http
+              port: {{ .Values.service.portName | default "http" }}
             periodSeconds: {{ .Values.probes.livenessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.livenessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.livenessProbe.failureThreshold }}

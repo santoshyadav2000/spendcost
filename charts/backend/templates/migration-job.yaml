@@ -41,7 +41,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if and .Values.migrations.waitForDb (not .Values.global.database.existingDatabase) }}
+      {{- if not .Values.global.database.existingDatabase }}
       initContainers:
         - name: wait-for-db
           image: {{ include "backend.image" . }}
