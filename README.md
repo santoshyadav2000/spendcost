@@ -45,18 +45,20 @@ secrets, database mode, storage, and ingress settings.
 ```sh
 helm lint . --strict
 helm template cloudcost .
-helm upgrade --install cloudcost .
+helm upgrade --install cloudcost . -n cloudcost --create-namespace
 ```
 
 `global.namespace.name` controls the namespace of the application resources,
-and the chart creates that namespace. The command above stores the Helm release
-metadata in the current Helm namespace (`default` unless another namespace is
-selected). Keep using the same Helm namespace for every upgrade of that release.
+and the chart creates that namespace. The `-n` flag above must match
+`global.namespace.name` exactly — Helm's own release bookkeeping only follows
+`-n`, never `values.yaml`, so a mismatch splits the release: `helm list`/`helm
+status` show one namespace while the actual pods run in another. Always use
+the same `-n` value for every install and upgrade of this release.
 
 To override a non-secret value without editing `values.yaml`:
 
 ```sh
-helm upgrade --install cloudcost . \
+helm upgrade --install cloudcost . -n cloudcost \
   --set backend.image.tag=1.2.3 \
   --set frontend.image.tag=1.2.3
 ```
@@ -70,8 +72,16 @@ other, so the command hangs indefinitely instead of completing. The commands
 documented in this README never use `--wait`, for exactly this reason. If you
 need a script/CI step to confirm the deploy is actually healthy, run
 `helm upgrade --install` without `--wait`, then separately run
-`kubectl rollout status deployment/cloudcost-backend -n cloudcost-test` —
+`kubectl rollout status deployment/cloudcost-backend -n cloudcost` —
 that achieves the same goal without triggering this deadlock.
+
+### Installing from a chart repository
+
+```sh
+helm repo add cloudcost <REPO_URL>
+helm repo update
+helm upgrade --install cloudcost cloudcost/cloudcost -n cloudcost --create-namespace
+```
 
 ## Database configuration
 
@@ -105,14 +115,14 @@ password, and database name.
 View the generated password in PowerShell:
 
 ```powershell
-$encoded = kubectl -n cloudcost-test get secret cloudcost-postgres-auth -o jsonpath="{.data.POSTGRES_PASSWORD}"
+$encoded = kubectl -n cloudcost get secret cloudcost-postgres-auth -o jsonpath="{.data.POSTGRES_PASSWORD}"
 [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded))
 ```
 
 On Linux or macOS:
 
 ```sh
-kubectl -n cloudcost-test get secret cloudcost-postgres-auth \
+kubectl -n cloudcost get secret cloudcost-postgres-auth \
   -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 --decode
 echo
 ```
@@ -139,8 +149,8 @@ everything else, with nothing left over — delete it explicitly after
 uninstalling:
 
 ```sh
-helm uninstall cloudcost -n default
-kubectl delete secret cloudcost-postgres-auth -n cloudcost-test
+helm uninstall cloudcost -n cloudcost
+kubectl delete secret cloudcost-postgres-auth -n cloudcost
 ```
 
 (The PVC does not need a separate delete command here: with the default
@@ -148,7 +158,6 @@ chart configuration the application namespace itself is deleted by
 `helm uninstall`, and deleting a namespace removes everything inside it,
 PVCs included — the Secret is the only thing that survives that cascade,
 because of its `keep` policy.)
-
 ### Existing PostgreSQL database
 
 To use a database that already exists, the backend needs a complete SQLAlchemy
@@ -279,7 +288,7 @@ behaves completely normally).
 View the generated value the same way as the Postgres password:
 
 ```powershell
-$encoded = kubectl get secret cloudcost-backend-secret -n cloudcost-test -o jsonpath="{.data.SECRET_KEY}"
+$encoded = kubectl get secret cloudcost-backend-secret -n cloudcost -o jsonpath="{.data.SECRET_KEY}"
 [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded))
 ```
 
@@ -605,8 +614,8 @@ frontend:
 
 ```sh
 helm status cloudcost
-kubectl -n cloudcost-test get pods,services,ingresses,pvc
-kubectl -n cloudcost-test get jobs
+kubectl -n cloudcost get pods,services,ingresses,pvc
+kubectl -n cloudcost get jobs
 ```
 
 If the Ingress has no public address, check the ingress controller Service, not
@@ -621,6 +630,6 @@ If the application cannot connect to PostgreSQL, confirm the selected database
 mode and inspect the relevant Secret without printing its values:
 
 ```sh
-kubectl -n cloudcost-test get secret cloudcost-postgres-auth
-kubectl -n cloudcost-test describe pod <backend-pod-name>
+kubectl -n cloudcost get secret cloudcost-postgres-auth
+kubectl -n cloudcost describe pod <backend-pod-name>
 ```

@@ -9,7 +9,7 @@
 # the values below to match wherever you are installing.
 #
 # Install / upgrade:
-#   helm upgrade --install cloudcost .
+#   helm upgrade --install cloudcost . -n cloudcost --create-namespace
 #
 # Override a single value at install time without editing the file:
 #   helm upgrade --install cloudcost . --set backend.image.tag=v1.2.3
@@ -30,7 +30,7 @@
 # ============================================================================
 global:
   namespace:
-    name: cloudcost-test         # Kubernetes namespace everything is installed into
+    name: cloudcost        # Kubernetes namespace everything is installed into
 
   # ==========================================================================
   database:

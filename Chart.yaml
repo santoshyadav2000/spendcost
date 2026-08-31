@@ -1,11 +1,11 @@
 apiVersion: v2
-name: costmanagement
+name: cloudcost
 description: |
   Umbrella Helm chart for the CloudCost platform (Azure Cost Management).
   Bundles the FastAPI backend, the React/nginx frontend, and a self-contained
   PostgreSQL database. Fully values-driven and offline/air-gap friendly.
 type: application
-version: 1.0.6
+version: 1.0.7
 appVersion: "1.0.0"
 keywords:
   - cloudcost
@@ -14,17 +14,17 @@ keywords:
   - postgresql
   - azure
 maintainers:
-  - name: Infrashift
+  - name: cloudcost
 
 # Subcharts. Backend and frontend always install. The database subchart only
 # renders when global.database.existingDatabase is false (gated inside its templates).
 dependencies:
   - name: database
-    version: "1.0.6"
+    version: "1.0.7"
     repository: "file://charts/database"
   - name: backend
-    version: "1.0.6"
+    version: "1.0.7"
     repository: "file://charts/backend"
   - name: frontend
-    version: "1.0.6"
+    version: "1.0.7"
     repository: "file://charts/frontend"
