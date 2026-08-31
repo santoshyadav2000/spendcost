@@ -15,12 +15,17 @@ image:
   pullSecrets: []         # e.g. [ { name: acr-pull-secret } ] for a private registry
 
 replicaCount: 2
+revisionHistoryLimit: 5
 
 service:
   annotations: {}
   type: ClusterIP
   port: 80
   targetPort: 80
+  # Name given to the container/Service port, referenced by the probes below.
+  # Change only if you need a different port name for some external tooling —
+  # this alone does not add HTTPS/TLS support inside the container.
+  portName: "http"
 
 # --- Runtime API URL injection ----------------------------------------------
 # VITE_API_BASE_URL is baked into the JS bundle at build time. To avoid
@@ -68,23 +73,6 @@ resources:
   limits:
     cpu: 250m
     memory: 128Mi
-
-probes:
-  enabled: true
-  path: /
-  startupProbe:
-    periodSeconds: 5
-    failureThreshold: 6        # 5s x 6 = 30s — nginx starts almost instantly
-  readinessProbe:
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-    successThreshold: 1
-  livenessProbe:
-    periodSeconds: 10
-    timeoutSeconds: 5          # was implicitly 1s — too tight
-    failureThreshold: 3
-    successThreshold: 1
 
 podAnnotations: {}
 podSecurityContext: {}

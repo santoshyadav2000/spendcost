@@ -16,9 +16,9 @@ spec:
   replicas: {{ .Values.workload.replicaCount }}
   {{- end }}
   revisionHistoryLimit: {{ .Values.workload.revisionHistoryLimit }}
-  {{- if and (not $isSts) .Values.workload.strategy }}
+  {{- if not $isSts }}
   strategy:
-    {{- toYaml .Values.workload.strategy | nindent 4 }}
+    type: RollingUpdate
   {{- end }}
   selector:
     matchLabels:
@@ -43,7 +43,7 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- $hasWaitForDb := and .Values.migrations.waitForDb (not .Values.global.database.existingDatabase) }}
+      {{- $hasWaitForDb := not .Values.global.database.existingDatabase }}
       {{- $hasSchemaGate := .Values.migrations.gateBackendOnSchema }}
       {{- if or $hasWaitForDb $hasSchemaGate }}
       initContainers:
@@ -138,7 +138,7 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           ports:
-            - name: http
+            - name: {{ .Values.service.portName | default "http" }}
               containerPort: {{ .Values.service.targetPort }}
           {{- if not .Values.global.database.existingDatabase }}
           env:
@@ -153,13 +153,13 @@ spec:
           startupProbe:
             httpGet:
               path: {{ .Values.probes.path }}
-              port: http
+              port: {{ .Values.service.portName | default "http" }}
             periodSeconds: {{ .Values.probes.startupProbe.periodSeconds }}
             failureThreshold: {{ .Values.probes.startupProbe.failureThreshold }}
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
-              port: http
+              port: {{ .Values.service.portName | default "http" }}
             periodSeconds: {{ .Values.probes.readinessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readinessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.readinessProbe.failureThreshold }}
@@ -167,7 +167,7 @@ spec:
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
-              port: http
+              port: {{ .Values.service.portName | default "http" }}
             periodSeconds: {{ .Values.probes.livenessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.livenessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.livenessProbe.failureThreshold }}

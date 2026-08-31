@@ -2,12 +2,18 @@
 
 Helm chart for installing the CloudCost platform on Kubernetes.
 
-> ⚠️ **SMTP configuration is mandatory.** If `backend.secrets.smtpUser` and
-> `backend.secrets.smtpPassword` in `values.yaml` are not set to real, working
-> SMTP credentials, **users cannot log in to the application at all.** The app
-> sends OTP / verification emails as part of login, so a missing or invalid
-> SMTP configuration blocks login entirely, not just email delivery. Set these
-> values before installing — see
+> ⚠️ **Login email configuration is mandatory.** The app sends OTP /
+> verification emails as part of login — without a working email
+> configuration, **users cannot log in to the application at all**, not just
+> "email delivery is broken." `backend.secrets.smtpProvider` selects which
+> credentials are required:
+> - `smtpProvider: "smtp"` (default) — `backend.secrets.smtpUser` and
+>   `backend.secrets.smtpPassword` must both be set to real, working SMTP
+>   credentials.
+> - `smtpProvider: "sendgrid"` — `backend.secrets.sendgridApiKey` and
+>   `backend.secrets.sendgridFromEmail` must both be set instead.
+>
+> Set the relevant values before installing — see
 > [Inline backend secret format](#inline-backend-secret-format) below.
 
 | Component | Workload | Internal Service port | Purpose |
@@ -201,8 +207,11 @@ backend:
   secrets:
     encoding: plain
     secretKey: "replace-with-a-long-random-value"
+    smtpProvider: "smtp"        # "smtp" | "sendgrid"
     smtpUser: "sender@example.com"
     smtpPassword: "application-password"
+    sendgridApiKey: ""          # only used when smtpProvider: "sendgrid"
+    sendgridFromEmail: ""       # only used when smtpProvider: "sendgrid"
 ```
 
 Base64 mode accepts values that are already Base64-encoded and validates them
@@ -213,8 +222,11 @@ backend:
   secrets:
     encoding: base64
     secretKey: "<base64-encoded-value>"
+    smtpProvider: "smtp"        # "smtp" | "sendgrid" — plain string, not Base64
     smtpUser: "<base64-encoded-value>"
     smtpPassword: "<base64-encoded-value>"
+    sendgridApiKey: "<base64-encoded-value>"
+    sendgridFromEmail: "<base64-encoded-value>"
 ```
 
 Use exactly `plain` or `base64`; the chart does not guess the format. Empty
@@ -224,6 +236,23 @@ form in Git.
 
 When Helm manages the backend Secret, changes to inline secret values trigger a
 backend pod rollout automatically through a pod-template checksum annotation.
+
+#### `smtpProvider` — choose the login-email channel
+
+`smtpProvider` selects which credentials the chart requires for login/OTP/
+verification emails, and which fields the `fail` validation checks:
+
+- `"smtp"` (default) — requires `smtpUser` and `smtpPassword`. Connects using
+  standard SMTP with STARTTLS, to whatever server is set in
+  `backend.config.smtp.server`/`backend.config.smtp.port` (e.g.
+  `smtp.gmail.com` or `smtp.office365.com` — any standard SMTP provider
+  works, not just Gmail).
+- `"sendgrid"` — requires `sendgridApiKey` and `sendgridFromEmail` instead.
+  Sends via SendGrid's API rather than SMTP; `backend.config.smtp.server`/
+  `port` are ignored entirely in this mode.
+
+Only the fields for the selected provider are required — the other
+provider's fields can be left empty.
 
 #### `secretKey` — auto-generated if left empty
 
@@ -306,7 +335,6 @@ migration Job fails and the backend schema is not upgraded.
 ```yaml
 backend:
   migrations:
-    waitForDb: true
     backoffLimit: 2
     activeDeadlineSeconds: 3600
     gateBackendOnSchema: true
@@ -392,6 +420,13 @@ The default `{}` adds nothing. Use these only when a Kubernetes platform,
 cloud-provider integration, monitoring system, or automation tool requires
 Service metadata.
 
+Both also support `service.portName` (default `"http"`) — the name given to
+the container/Service port, which the startup/readiness/liveness probes
+reference automatically. Change it only if some external tooling requires a
+specific port name; this does not add HTTPS/TLS support inside the
+container, which this chart does not currently provide (TLS is terminated
+at the Ingress — see [Access with DNS and TLS](#access-with-dns-and-tls)).
+
 ### Access without a domain name
 
 With the default hostless Ingress rules, get the ingress controller public IP:
@@ -459,6 +494,17 @@ served the frontend, and the Ingress routes `/api/...` to the backend.
 
 `backend.workload.kind` accepts `Deployment` or `StatefulSet`.
 
+`backend.workload.revisionHistoryLimit` and `frontend.revisionHistoryLimit`
+(default `5` for both) control how many old ReplicaSets Kubernetes keeps
+around after a deploy — each one is what `kubectl rollout undo` rolls back
+to. Raise it for deeper rollback history, lower it to reduce cluster
+clutter from old ReplicaSet objects.
+
+Both backend and frontend Deployments use a `RollingUpdate` strategy
+(replace pods gradually, not all at once). This is fixed and not
+user-configurable — there's no scenario where `Recreate` benefits either
+workload here.
+
 The backend currently runs scheduled workers inside the application process.
 Keep it at one replica, with its PodDisruptionBudget and autoscaling disabled,
 unless the API and scheduled-worker responsibilities are separated. Otherwise,
@@ -480,6 +526,64 @@ autoscaling:
 
 Keep backend autoscaling disabled while background workers run inside the
 backend process. Frontend autoscaling is safer because the frontend is stateless.
+
+## Health probes
+
+Both backend and frontend expose `probes.enabled`, `probes.path`, and
+separate `startupProbe`/`readinessProbe`/`livenessProbe` blocks:
+
+```yaml
+backend:
+  probes:
+    enabled: true
+    path: /
+    startupProbe:
+      periodSeconds: 5
+      failureThreshold: 30       # 5s x 30 = 150s startup budget
+    readinessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    livenessProbe:
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+
+frontend:
+  probes:
+    enabled: true
+    path: /
+    startupProbe:
+      periodSeconds: 5
+      failureThreshold: 6        # 5s x 6 = 30s -- nginx starts almost instantly
+    readinessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    livenessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+```
+
+- `startupProbe` — gates readiness/liveness until the app has started
+  successfully once. The backend gets a longer budget (150s = 5s x 30) than
+  the frontend (30s = 5s x 6) because FastAPI boots routes and background
+  workers on startup, while nginx starts almost instantly.
+- `readinessProbe` — controls whether a pod receives traffic from the
+  Service. Failing this removes the pod from the Service's endpoints
+  without restarting the container.
+- `livenessProbe` — controls whether Kubernetes restarts the container.
+  Both set `timeoutSeconds: 5` explicitly; Kubernetes' own default is `1`
+  second, which is too tight for either app under real load and previously
+  caused false-positive restarts.
+- `probes.enabled: false` disables all three probes entirely. Only useful
+  for local debugging — do not disable in a real deployment, since
+  Kubernetes then has no way to detect a hung or crashed process.
 
 ## Production checklist
 

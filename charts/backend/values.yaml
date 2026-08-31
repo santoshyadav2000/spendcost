@@ -22,8 +22,6 @@ image:
 workload:
   kind: Deployment
   replicaCount: 1
-  strategy:
-    type: RollingUpdate      # for Deployment
   revisionHistoryLimit: 5
 
 command: []                  # override container command if needed
@@ -34,6 +32,10 @@ service:
   type: ClusterIP
   port: 8000
   targetPort: 8000
+  # Name given to the container/Service port, referenced by the probes below.
+  # Change only if you need a different port name for some external tooling —
+  # this alone does not add HTTPS/TLS support inside the container.
+  portName: "http"
 
 # --- Application config (non-secret) ----------------------------------------
 config:
@@ -41,8 +43,10 @@ config:
   bcryptSaltRound: 12
   batchSize: 100
   maxDelete: 500
+  # Only used when secrets.smtpProvider is "smtp" (see secrets: below).
+  # Ignored entirely when smtpProvider is "sendgrid".
   smtp:
-    server: "smtp.gmail.com"
+    server: "smtp.gmail.com"    # e.g. smtp.gmail.com | smtp.office365.com
     port: 587
   # Free-form extra env (rendered into ConfigMap)
   extraEnv: {}
@@ -76,8 +80,6 @@ secrets:
 # The migration Job and its PostgreSQL extensions are mandatory and hardcoded
 # in charts/backend/templates/migration-job.yaml — nothing to enable here.
 migrations:
-  # Waits for the DB TCP port before the migration/backend containers start.
-  waitForDb: true
   # Job retries on failure. A bad DATABASE_URL, wrong credentials, or a
   # missing database/role/extension is a config error and won't be fixed by
   # retrying — this small buffer is only to absorb rare transient infra
@@ -166,26 +168,6 @@ resources:
   limits:
     cpu: "1"
     memory: 1Gi
-
-probes:
-  enabled: true
-  path: /
-  # Gates readiness/liveness until the app has started successfully once.
-  # Separate from (and after) the wait-for-migrations init container — this
-  # covers the FastAPI app's own boot time (routes, background workers).
-  startupProbe:
-    periodSeconds: 5
-    failureThreshold: 30       # 5s x 30 = 150s startup budget
-  readinessProbe:
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-    successThreshold: 1
-  livenessProbe:
-    periodSeconds: 15
-    timeoutSeconds: 5          # was implicitly 1s — too tight, caused false-positive restarts
-    failureThreshold: 3
-    successThreshold: 1
 
 serviceAccount:
   create: true
