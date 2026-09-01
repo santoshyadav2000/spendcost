@@ -3,6 +3,36 @@ entries:
   cloudcost:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-09-01T10:17:43.865561646Z"
+    dependencies:
+    - name: database
+      repository: file://charts/database
+      version: 1.0.12
+    - name: backend
+      repository: file://charts/backend
+      version: 1.0.12
+    - name: frontend
+      repository: file://charts/frontend
+      version: 1.0.12
+    description: 'Umbrella Helm chart for the CloudCost platform (Azure Cost Management).
+      Bundles the FastAPI backend, the React/nginx frontend, and a self-contained
+      PostgreSQL database. Fully values-driven and offline/air-gap friendly. '
+    digest: 0ea918fc7da2452b4f528a16b125db8e714e030c033274668be1fad3f2ebba77
+    keywords:
+    - cloudcost
+    - fastapi
+    - react
+    - postgresql
+    - azure
+    maintainers:
+    - name: cloudcost
+    name: cloudcost
+    type: application
+    urls:
+    - https://github.com/santoshyadav2000/spendcost/releases/download/cloudcost-1.0.12/cloudcost-1.0.12.tgz
+    version: 1.0.12
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-09-01T08:51:23.647550629Z"
     dependencies:
     - name: database
@@ -91,4 +121,4 @@ entries:
     urls:
     - https://github.com/santoshyadav2000/spendcost/releases/download/cloudcost-1.0.9/cloudcost-1.0.9.tgz
     version: 1.0.9
-generated: "2026-09-01T08:51:23.647574785Z"
+generated: "2026-09-01T10:17:43.865578185Z"
