@@ -85,6 +85,24 @@ helm repo update
 helm upgrade --install cloudcost cloudcost/cloudcost -n cloudcost --create-namespace
 ```
 
+### Customizing values when installing from the repository
+
+Since `helm repo add`/`helm install cloudcost/cloudcost` doesn't give you a
+local `values.yaml` to edit, add the repo, then pull and unpack the chart:
+
+```sh
+helm repo add cloudcost https://santoshyadav2000.github.io/spendcost/
+helm repo update cloudcost
+helm pull cloudcost/cloudcost --untar
+cd cloudcost
+```
+
+Edit `values.yaml` as usual, then install with the local path:
+
+```sh
+helm upgrade --install cloudcost . -n cloudcost --create-namespace
+```
+
 ## Database configuration
 
 The chart supports two database modes through `global.database`.

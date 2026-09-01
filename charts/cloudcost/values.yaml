@@ -13,6 +13,11 @@
 #
 # Override a single value at install time without editing the file:
 #   helm upgrade --install cloudcost ./charts/cloudcost --set backend.image.tag=v1.2.3
+#
+# Editing this file after "helm pull cloudcost/cloudcost --untar" instead of a
+# git clone? You're already standing where this file is — use "." as the
+# chart path, not "./charts/cloudcost":
+#   helm upgrade --install cloudcost . -n cloudcost --create-namespace
 # ############################################################################
 #
 # !!! LOGIN EMAIL CONFIGURATION IS MANDATORY !!!
