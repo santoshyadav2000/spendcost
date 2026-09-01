@@ -80,7 +80,7 @@ that achieves the same goal without triggering this deadlock.
 ### Installing from a chart repository
 
 ```sh
-helm repo add cloudcost <REPO_URL>
+helm repo add cloudcost https://santoshyadav2000.github.io/spendcost/
 helm repo update
 helm upgrade --install cloudcost cloudcost/cloudcost -n cloudcost --create-namespace
 ```
