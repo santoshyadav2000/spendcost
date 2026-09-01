@@ -178,7 +178,7 @@ NEXT STEPS
 - Configure DNS: point a domain at the ingress IP, set
   frontend.ingress.hosts[0].host and backend.ingress.hosts[0].host in
   values.yaml, then run:
-    helm upgrade {{ .Release.Name }} . -n {{ .Values.global.namespace.name }}
+    helm upgrade {{ .Release.Name }} ./charts/cloudcost -n {{ .Values.global.namespace.name }}
 - Enable HTTPS: install cert-manager, configure frontend/backend
   ingress.tls in values.yaml, add a cert-manager cluster-issuer annotation.
 {{- end }}

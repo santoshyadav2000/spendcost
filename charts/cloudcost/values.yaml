@@ -8,11 +8,11 @@
 # staging or production. There are no separate per-environment files: you set
 # the values below to match wherever you are installing.
 #
-# Install / upgrade:
-#   helm upgrade --install cloudcost . -n cloudcost --create-namespace
+# Install / upgrade (run from the repository root, helm/):
+#   helm upgrade --install cloudcost ./charts/cloudcost -n cloudcost --create-namespace
 #
 # Override a single value at install time without editing the file:
-#   helm upgrade --install cloudcost . --set backend.image.tag=v1.2.3
+#   helm upgrade --install cloudcost ./charts/cloudcost --set backend.image.tag=v1.2.3
 # ############################################################################
 #
 # !!! LOGIN EMAIL CONFIGURATION IS MANDATORY !!!
@@ -113,6 +113,9 @@ global:
     securityContext:
       runAsUser: 999
       runAsNonRoot: true
+    nodeSelector: {}          # restrict which nodes this can be scheduled on
+    tolerations: []           # allow scheduling onto nodes with matching taints
+    affinity: {}              # node/pod affinity and anti-affinity rules
 
   labels: {}                 # extra labels stamped on every object
 
@@ -269,6 +272,9 @@ backend:
   # hardening (e.g. runAsNonRoot, readOnlyRootFilesystem, fsGroup).
   podSecurityContext: {}
   securityContext: {}
+  nodeSelector: {}          # restrict which nodes this can be scheduled on
+  tolerations: []           # allow scheduling onto nodes with matching taints
+  affinity: {}              # node/pod affinity and anti-affinity rules
 
 
 # ============================================================================
@@ -373,3 +379,6 @@ frontend:
   # hardening (e.g. runAsNonRoot, readOnlyRootFilesystem, fsGroup).
   podSecurityContext: {}
   securityContext: {}
+  nodeSelector: {}          # restrict which nodes this can be scheduled on
+  tolerations: []           # allow scheduling onto nodes with matching taints
+  affinity: {}              # node/pod affinity and anti-affinity rules
