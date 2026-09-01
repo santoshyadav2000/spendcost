@@ -39,13 +39,15 @@ ingress controller or create DNS records and TLS certificates.
 
 ## Configure and install
 
+Run every command below from the repository root (`helm/`).
+
 Review `values.yaml`, especially the namespace, image references, application
 secrets, database mode, storage, and ingress settings.
 
 ```sh
-helm lint . --strict
-helm template cloudcost .
-helm upgrade --install cloudcost . -n cloudcost --create-namespace
+helm lint ./charts/cloudcost --strict
+helm template cloudcost ./charts/cloudcost
+helm upgrade --install cloudcost ./charts/cloudcost -n cloudcost --create-namespace
 ```
 
 `global.namespace.name` controls the namespace of the application resources,
@@ -58,7 +60,7 @@ the same `-n` value for every install and upgrade of this release.
 To override a non-secret value without editing `values.yaml`:
 
 ```sh
-helm upgrade --install cloudcost . -n cloudcost \
+helm upgrade --install cloudcost ./charts/cloudcost -n cloudcost \
   --set backend.image.tag=1.2.3 \
   --set frontend.image.tag=1.2.3
 ```
