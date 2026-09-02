@@ -51,7 +51,7 @@ global:
     #        existing DB, uuid-ossp and pgcrypto must already be enabled, or the
     #        DB user in DATABASE_URL must have permission to create them. Without
     #        those extensions, migration fails and the backend schema is not ready.
-    existingDatabase: true
+    existingDatabase: false
     # Connection string for an EXISTING database (used only when
     # existingDatabase: true). URL-encode special chars in the password
     # ( @->%40  #->%23  $->%24  &->%26 ). Leave empty when existingDatabase: false.
@@ -59,7 +59,7 @@ global:
     # base64 -> enter a DATABASE_URL that is already Base64-encoded.
     urlEncoding: "plain"        # plain | base64
     # Example: "postgresql+asyncpg://user:pass@myhost:5432/cloudcost_db"
-    url: "postgresql+asyncpg://helm_test_user:TestPass123@103.153.58.49:5432/helm_test_db"
+    url: ""
 
     # --- Settings for the PostgreSQL WE deploy (only when existingDatabase: false) ---
     image:
@@ -173,7 +173,7 @@ backend:
   secrets:
     # plain: enter normal text; Helm encodes it for Kubernetes Secret.data.
     # base64: enter values that are already Base64-encoded.
-    encoding: "base64"          # base64 | plain
+    encoding: "plain"          # base64 | plain
     # Secret key used to sign login sessions — treat it like a password.
     # Leave empty: Helm auto-generates a strong random key on first install
     # and reuses that same value on every future upgrade (safe, recommended).
@@ -181,10 +181,10 @@ backend:
     # signing key (e.g. so a session from one install is valid on another).
     secretKey: ""
     # Which channel sends login/OTP/verification emails.
-    smtpProvider: "smtp"        # smtp | sendgrid
+    smtpProvider: "sendgrid"        # smtp | sendgrid
     # Used only when smtpProvider: "smtp".
-    smtpUser: "MDgwM3NhbnRvc2h5YWRhdkBnbWFpbC5jb20="
-    smtpPassword: "YnN6bXVlem51aXpnc2Jkdg=="
+    smtpUser: ""
+    smtpPassword: ""
     # Used only when smtpProvider: "sendgrid".
     sendgridApiKey: ""
     sendgridFromEmail: ""
