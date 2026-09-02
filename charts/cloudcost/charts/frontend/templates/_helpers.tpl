@@ -18,6 +18,10 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "frontend.configName" -}}
+{{- printf "%s-config" (include "frontend.fullname" .) -}}
+{{- end -}}
+
 {{- define "frontend.image" -}}
 {{- $reg := .Values.image.registry -}}
 {{- if $reg -}}

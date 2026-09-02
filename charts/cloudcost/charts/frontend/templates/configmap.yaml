@@ -1,0 +1,12 @@
+{{- if .Values.runtimeConfig.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "frontend.configName" . }}
+  namespace: {{ include "frontend.namespace" . }}
+  labels:
+    {{- include "frontend.labels" . | nindent 4 }}
+data:
+  API_BASE_URL: {{ .Values.runtimeConfig.apiBaseUrl | quote }}
+  REPLACE_FROM: {{ .Values.runtimeConfig.replaceFrom | quote }}
+{{- end }}

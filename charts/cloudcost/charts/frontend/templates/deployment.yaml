@@ -35,15 +35,18 @@ spec:
         - name: inject-config
           image: {{ include "frontend.image" . }}
           imagePullPolicy: {{ include "frontend.pullPolicy" . }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "frontend.configName" . }}
           command:
             - sh
             - -c
             - |
               set -e
               cp -a /usr/share/nginx/html/. /work/
-              echo "Rewriting API base URL -> {{ .Values.runtimeConfig.apiBaseUrl }}"
-              grep -rl "{{ .Values.runtimeConfig.replaceFrom }}" /work 2>/dev/null | while read -r f; do
-                sed -i "s|{{ .Values.runtimeConfig.replaceFrom }}|{{ .Values.runtimeConfig.apiBaseUrl }}|g" "$f"
+              echo "Rewriting API base URL -> $API_BASE_URL"
+              grep -rl "$REPLACE_FROM" /work 2>/dev/null | while read -r f; do
+                sed -i "s|$REPLACE_FROM|$API_BASE_URL|g" "$f"
               done || true
           volumeMounts:
             - name: html
