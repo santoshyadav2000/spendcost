@@ -155,6 +155,7 @@ spec:
               path: {{ .Values.probes.path }}
               port: {{ .Values.service.portName | default "http" }}
             periodSeconds: {{ .Values.probes.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startupProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.startupProbe.failureThreshold }}
           readinessProbe:
             httpGet:

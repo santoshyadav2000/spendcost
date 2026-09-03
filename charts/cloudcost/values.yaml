@@ -130,8 +130,8 @@ global:
 # ============================================================================
 backend:
   image:
-    registry: docker.io/santosh1031
-    repository: cloudcost-backend
+    registry: docker.io/infrashifttechnologies
+    repository: cloudcost-api
     tag: "latest"
     pullPolicy: Always
     pullSecrets: []          # e.g. [ { name: acr-pull-secret } ] for a private registry
@@ -173,7 +173,7 @@ backend:
   secrets:
     # plain: enter normal text; Helm encodes it for Kubernetes Secret.data.
     # base64: enter values that are already Base64-encoded.
-    encoding: "plain"          # base64 | plain
+    encoding: "base64"          # base64 | plain
     # Secret key used to sign login sessions — treat it like a password.
     # Leave empty: Helm auto-generates a strong random key on first install
     # and reuses that same value on every future upgrade (safe, recommended).
@@ -181,7 +181,7 @@ backend:
     # signing key (e.g. so a session from one install is valid on another).
     secretKey: ""
     # Which channel sends login/OTP/verification emails.
-    smtpProvider: "sendgrid"        # smtp | sendgrid
+    smtpProvider: "smtp"        # smtp | sendgrid
     # Used only when smtpProvider: "smtp".
     smtpUser: ""
     smtpPassword: ""
@@ -206,7 +206,7 @@ backend:
   # have an ingress controller installed (e.g. nginx), and DNS + TLS cert are
   # handled outside this chart. This block only creates the routing rule.
   ingress:
-    enabled: true                       # true = create the public route; false = internal only (port-forward)
+    enabled: false                      # true = create the public route; false = internal only (port-forward)
     className: nginx                     # ingress controller class. "" = cluster default ingress class
     annotations:
       # Strip the /api prefix before forwarding to the backend (nginx-ingress).
@@ -242,7 +242,8 @@ backend:
     # covers the FastAPI app's own boot time (routes, background workers).
     startupProbe:
       periodSeconds: 5
-      failureThreshold: 30       # 5s x 30 = 150s startup budget
+      timeoutSeconds: 5
+      failureThreshold: 60
     readinessProbe:
       periodSeconds: 10
       timeoutSeconds: 5
@@ -250,8 +251,8 @@ backend:
       successThreshold: 1
     livenessProbe:
       periodSeconds: 15
-      timeoutSeconds: 5          # was implicitly 1s — too tight, caused false-positive restarts
-      failureThreshold: 3
+      timeoutSeconds: 10
+      failureThreshold: 6
       successThreshold: 1
 
   # PodDisruptionBudget — keep DISABLED for the backend.
@@ -287,7 +288,7 @@ backend:
 # ============================================================================
 frontend:
   image:
-    registry: docker.io/santosh1031
+    registry: docker.io/infrashifttechnologies
     repository: cloudcost-ui           # your built UI image
     tag: "latest"
     pullPolicy: Always
@@ -320,7 +321,7 @@ frontend:
   # an ingress controller must be installed, and DNS + TLS are set up outside
   # this chart. This block only creates the routing rule.
   ingress:
-    enabled: true                       # true = create the public route; false = internal only (port-forward)
+    enabled: false                       # true = create the public route; false = internal only (port-forward)
     className: nginx                     # ingress controller class. "" = cluster default ingress class
     annotations: {}                      # controller / cert-manager settings, e.g. { cert-manager.io/cluster-issuer: letsencrypt-prod }
     # Have a DNS domain? UNCOMMENT the host line and set it.
